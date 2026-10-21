@@ -1,0 +1,14 @@
+{
+  "name": "@profping/firebase-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/rules.test.js",
+    "set-role": "node scripts/setRole.js",
+    "seed-data": "node scripts/seedData.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.1.0"
+  }
+}

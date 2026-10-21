@@ -11,6 +11,7 @@
     "./deskHours": "./src/deskHours.js"
   },
   "scripts": {
+    "test": "node --test tests/deskHours.test.js",
     "lint": "echo shared: lint ok"
   }
 }

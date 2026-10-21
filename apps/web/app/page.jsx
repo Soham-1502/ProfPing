@@ -1,10 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { STATUS_CONFIG, STATUS_KEYS, ROLES, DEPARTMENTS, calculateDailyDeskHours } from '@profping/shared';
 import { auth, db } from '../src/lib/firebase';
+import { useAuth } from '../src/hooks/useAuth';
 
 export default function Home() {
+  const { user, role, department, logout } = useAuth();
+  const router = useRouter();
   const [testCalculation, setTestCalculation] = useState(null);
 
   useEffect(() => {
@@ -69,17 +73,67 @@ export default function Home() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <span style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#cbd5e1',
-            }}>
-              Role: Principal / HOD
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {user ? (
+              <>
+                <span style={{
+                  backgroundColor: role === 'principal' ? 'rgba(139, 92, 246, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                  border: `1px solid ${role === 'principal' ? '#8b5cf6' : '#3b82f6'}40`,
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  color: role === 'principal' ? '#c4b5fd' : '#93c5fd',
+                  fontWeight: 600,
+                }}>
+                  {role?.toUpperCase()} {department ? `(${department})` : ''}
+                </span>
+                <button
+                  onClick={() => router.push(role === 'hod' ? '/hod' : role === 'principal' ? '/principal' : '/login')}
+                  style={{
+                    backgroundColor: '#2563eb',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Enter Portal →
+                </button>
+                <button
+                  onClick={logout}
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#cbd5e1',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => router.push('/login')}
+                style={{
+                  backgroundColor: '#2563eb',
+                  border: 'none',
+                  color: '#ffffff',
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Sign In to Portal →
+              </button>
+            )}
           </div>
         </header>
 
