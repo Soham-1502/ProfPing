@@ -143,25 +143,25 @@ export default function StudentHomeScreen() {
           <View style={styles.metricItem}>
             <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].color }]} />
             <Text style={styles.metricText}>
-              <strong style={{ color: '#ffffff' }}>{statusCounts[STATUS_KEYS.AVAILABLE]}</strong> Avail
+              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.AVAILABLE]}</Text> Avail
             </Text>
           </View>
           <View style={styles.metricItem}>
             <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.IN_LECTURE].color }]} />
             <Text style={styles.metricText}>
-              <strong style={{ color: '#ffffff' }}>{statusCounts[STATUS_KEYS.IN_LECTURE]}</strong> Lecture
+              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.IN_LECTURE]}</Text> Lecture
             </Text>
           </View>
           <View style={styles.metricItem}>
             <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.BUSY].color }]} />
             <Text style={styles.metricText}>
-              <strong style={{ color: '#ffffff' }}>{statusCounts[STATUS_KEYS.BUSY]}</strong> Busy
+              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.BUSY]}</Text> Busy
             </Text>
           </View>
           <View style={styles.metricItem}>
             <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.OFF_CAMPUS].color }]} />
             <Text style={styles.metricText}>
-              <strong style={{ color: '#ffffff' }}>{statusCounts[STATUS_KEYS.OFF_CAMPUS]}</strong> Off
+              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.OFF_CAMPUS]}</Text> Off
             </Text>
           </View>
         </View>
@@ -238,12 +238,12 @@ export default function StudentHomeScreen() {
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
-                <div>
+                <View>
                   <Text style={styles.modalTitle}>{selectedFaculty.name}</Text>
                   <Text style={styles.modalSubtitle}>
                     {selectedFaculty.department} • {selectedFaculty.designation}
                   </Text>
-                </div>
+                </View>
                 <TouchableOpacity onPress={() => setSelectedFaculty(null)} style={styles.modalCloseBtn}>
                   <Text style={styles.modalCloseText}>✕</Text>
                 </TouchableOpacity>
