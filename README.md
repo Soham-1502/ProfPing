@@ -107,7 +107,9 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ### Running the Mobile App (Expo):
 ```bash
-npx expo start --workspace=@profping/mobile
+npm run dev --workspace=@profping/mobile
+# Or navigate to mobile directory:
+cd apps/mobile && npx expo start
 ```
 - **To view in web browser:** Press `w` in the terminal to launch at `http://localhost:8081`.
 - **To view on physical phone:** Scan the terminal QR code using the **Expo Go** app (iOS / Android).
@@ -118,10 +120,11 @@ npx expo start --workspace=@profping/mobile
 
 ProfPing includes native unit and security rule verification test suites:
 
-### Run Telemetry Math Tests ($\Delta t$ Desk Hours):
+### Run All Tests (Root):
 ```bash
-npm test --workspace=@profping/shared
+npm test
 ```
+Runs both the telemetry math engine tests and database security rule tests with 100% pass rate.
 Validates zero-log edge cases, working-hours clipping (8:30 AM – 5:30 PM), consecutive state deduplication, and out-of-order timestamp sorting.
 
 ### Run Security Rule Verification Tests:
