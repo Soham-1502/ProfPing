@@ -1,13 +1,39 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import RoleGuard from '../../src/components/RoleGuard';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useRouter } from 'next/navigation';
+import { getScopedFaculty } from '../../src/lib/dashboardService';
+import LiveStatusTable from '../../src/components/LiveStatusTable';
+import DeskHourChart from '../../src/components/DeskHourChart';
+import { STATUS_KEYS } from '@profping/shared';
 
 export default function HodDashboardPage() {
   const { user, department, logout } = useAuth();
   const router = useRouter();
+
+  const effectiveDept = department || 'CMPN';
+  const facultyList = useMemo(() => getScopedFaculty(effectiveDept), [effectiveDept]);
+
+  // Aggregate stats
+  const stats = useMemo(() => {
+    let available = 0;
+    let inLecture = 0;
+    let compliant = 0;
+    facultyList.forEach((f) => {
+      if (f.status?.state === STATUS_KEYS.AVAILABLE) available++;
+      if (f.status?.state === STATUS_KEYS.IN_LECTURE) inLecture++;
+      if (f.compliance === 'COMPLIANT') compliant++;
+    });
+    return {
+      total: facultyList.length,
+      available,
+      inLecture,
+      compliant,
+      rate: facultyList.length ? Math.round((compliant / facultyList.length) * 100) : 0,
+    };
+  }, [facultyList]);
 
   const handleLogout = async () => {
     await logout();
@@ -30,6 +56,8 @@ export default function HodDashboardPage() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{
@@ -44,7 +72,7 @@ export default function HodDashboardPage() {
             </span>
             <div>
               <h1 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                HOD Dashboard — Department of {department || 'Department'}
+                HOD Portal — Department of {effectiveDept}
               </h1>
               <span style={{ fontSize: '12px', color: '#94a3b8' }}>
                 Department-scoped live telemetry & desk-hour compliance
@@ -62,7 +90,7 @@ export default function HodDashboardPage() {
               padding: '4px 10px',
               borderRadius: '6px',
             }}>
-              Role: HOD ({department || 'CMPN'})
+              Role: HOD ({effectiveDept})
             </span>
             <span style={{ fontSize: '13px', color: '#cbd5e1' }}>
               {user?.email}
@@ -84,41 +112,45 @@ export default function HodDashboardPage() {
           </div>
         </nav>
 
-        {/* Content Shell */}
-        <main style={{ maxWidth: '1200px', margin: '32px auto', padding: '0 24px' }}>
+        {/* Content Body */}
+        <main style={{ maxWidth: '1240px', margin: '32px auto', padding: '0 24px' }}>
+          {/* Summary Stat Cards */}
           <div style={{
-            backgroundColor: 'rgba(30, 41, 59, 0.5)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '12px',
-            padding: '24px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '16px',
             marginBottom: '24px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-              <h2 style={{ fontSize: '18px', fontWeight: 700 }}>
-                Department Telemetry: {department || 'CMPN'} Faculty
-              </h2>
+            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Department Faculty</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#ffffff' }}>{stats.total}</div>
+              <span style={{ fontSize: '11px', color: '#38bdf8' }}>Scaped to {effectiveDept} only</span>
             </div>
-            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: '1.5' }}>
-              You are authenticated as Head of Department with RBAC scoping active. Realtime Database security rules restrict your read access to faculty within your assigned department (<strong style={{ color: '#f1f5f9' }}>{department}</strong>).
-            </p>
+
+            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Available at Desk</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#10b981' }}>{stats.available}</div>
+              <span style={{ fontSize: '11px', color: '#10b981' }}>Consultation active</span>
+            </div>
+
+            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>In Lecture / Lab</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#3b82f6' }}>{stats.inLecture}</div>
+              <span style={{ fontSize: '11px', color: '#3b82f6' }}>Active teaching session</span>
+            </div>
+
+            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Desk-Hour Compliance</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#f59e0b' }}>{stats.rate}%</div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>{stats.compliant} of {stats.total} met target (≥3h)</span>
+            </div>
           </div>
 
-          <div style={{
-            backgroundColor: '#0f172a',
-            border: '1px dashed rgba(255, 255, 255, 0.15)',
-            borderRadius: '12px',
-            padding: '40px',
-            textAlign: 'center',
-            color: '#64748b',
-          }}>
-            <p style={{ fontSize: '16px', fontWeight: 600, color: '#94a3b8' }}>
-              Phase 2 RBAC Verification Active
-            </p>
-            <p style={{ fontSize: '13px', marginTop: '6px' }}>
-              Live faculty status table and daily desk-hour telemetry charts will connect here in Phases 6 & 7.
-            </p>
-          </div>
+          {/* Recharts Duration Analytics Chart */}
+          <DeskHourChart facultyList={facultyList} title={`${effectiveDept} Faculty Desk-Hour Analysis`} />
+
+          {/* Live Status Table */}
+          <LiveStatusTable facultyList={facultyList} title={`${effectiveDept} Faculty Live Roster`} />
         </main>
       </div>
     </RoleGuard>
