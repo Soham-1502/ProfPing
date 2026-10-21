@@ -1,0 +1,29 @@
+{
+  "name": "@profping/mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "start": "expo start",
+    "build": "echo mobile: ready for build",
+    "lint": "echo mobile: lint ok",
+    "check-types": "echo mobile: types ok",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@profping/shared": "*",
+    "expo": "~58.0.16",
+    "expo-constants": "~58.0.0",
+    "expo-linking": "~58.0.0",
+    "expo-router": "~58.0.24",
+    "expo-status-bar": "~58.0.3",
+    "firebase": "^11.4.0",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "^5.0.0",
+    "react-native-screens": "^4.6.0"
+  },
+  "private": true
+}
