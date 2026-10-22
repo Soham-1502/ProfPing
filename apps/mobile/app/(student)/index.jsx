@@ -7,20 +7,56 @@ import {
   StyleSheet,
   ScrollView,
   Modal,
+  Alert,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_CONFIG, STATUS_KEYS, DEPARTMENTS } from '@profping/shared';
 import { subscribeToLiveDirectory } from '../../src/services/directoryService';
 
+// ── Avatar color palette (cycles by name initial) ─────────────────────────
+const AVATAR_COLORS = [
+  { bg: '#FEF3C7', text: '#92400E' }, // amber
+  { bg: '#FCE7F3', text: '#9D174D' }, // pink
+  { bg: '#D1FAE5', text: '#065F46' }, // green
+  { bg: '#DBEAFE', text: '#1E40AF' }, // blue
+  { bg: '#EDE9FE', text: '#5B21B6' }, // purple
+  { bg: '#FEE2E2', text: '#991B1B' }, // red
+  { bg: '#E0F2FE', text: '#0369A1' }, // sky
+  { bg: '#FFF7ED', text: '#9A3412' }, // orange
+];
+
+function getAvatarColor(name = '') {
+  const idx = (name.charCodeAt(0) || 0) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[idx];
+}
+
+function getInitials(name = '') {
+  const parts = name.trim().split(' ');
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0]?.[0] || 'F').toUpperCase();
+}
+
+// ── Status badge config (light-mode colors) ────────────────────────────────
+const BADGE = {
+  available:   { label: 'Available',   bg: '#DCFCE7', text: '#16A34A', dot: '#22C55E' },
+  busy:        { label: 'Busy (DND)',  bg: '#FEF9C3', text: '#A16207', dot: '#EAB308' },
+  in_lecture:  { label: 'In Lecture',  bg: '#FCE7F3', text: '#BE185D', dot: '#EC4899' },
+  off_campus:  { label: 'Off Campus',  bg: '#F1F5F9', text: '#64748B', dot: '#94A3B8' },
+};
+
 export default function StudentHomeScreen() {
-  const { user, role, department, logout } = useAuth();
+  const { user, department, logout } = useAuth();
   const router = useRouter();
 
   const [facultyList, setFacultyList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDept, setSelectedDept] = useState('ALL');
+  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'STARRED' | dept id
+  const [starredUids, setStarredUids] = useState(new Set());
   const [selectedFaculty, setSelectedFaculty] = useState(null);
+  const [activeTab, setActiveTab] = useState('home'); // bottom nav tab
 
   // Subscribe to live directory
   useEffect(() => {
@@ -30,586 +66,723 @@ export default function StudentHomeScreen() {
     return () => unsubscribe();
   }, []);
 
-  // Filtered faculty list
+  // Filtered list
   const filteredList = useMemo(() => {
     return facultyList.filter((item) => {
-      // 1. Department filter
-      if (selectedDept !== 'ALL' && item.department !== selectedDept) {
-        return false;
-      }
-      // 2. Search query filter
+      if (activeFilter === 'STARRED' && !starredUids.has(item.uid)) return false;
+      if (activeFilter !== 'ALL' && activeFilter !== 'STARRED' && item.department !== activeFilter) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      const nameMatch = (item.name || '').toLowerCase().includes(q);
-      const desigMatch = (item.designation || '').toLowerCase().includes(q);
-      const msgMatch = (item.status?.message || '').toLowerCase().includes(q);
-      const deptMatch = (item.department || '').toLowerCase().includes(q);
-      return nameMatch || desigMatch || msgMatch || deptMatch;
+      return (
+        (item.name || '').toLowerCase().includes(q) ||
+        (item.designation || '').toLowerCase().includes(q) ||
+        (item.status?.message || '').toLowerCase().includes(q) ||
+        (item.department || '').toLowerCase().includes(q)
+      );
     });
-  }, [facultyList, selectedDept, searchQuery]);
+  }, [facultyList, activeFilter, searchQuery, starredUids]);
 
-  // Aggregate status metrics
-  const statusCounts = useMemo(() => {
-    const counts = {
-      [STATUS_KEYS.AVAILABLE]: 0,
-      [STATUS_KEYS.IN_LECTURE]: 0,
-      [STATUS_KEYS.BUSY]: 0,
-      [STATUS_KEYS.OFF_CAMPUS]: 0,
-    };
-    filteredList.forEach((fac) => {
-      const state = fac.status?.state;
-      if (counts[state] !== undefined) counts[state]++;
+  // Starred faculty list (from full list)
+  const starredList = useMemo(
+    () => facultyList.filter((f) => starredUids.has(f.uid)),
+    [facultyList, starredUids]
+  );
+
+  // Count online faculty
+  const onlineCount = useMemo(
+    () => facultyList.filter((f) => f.status?.state !== STATUS_KEYS.OFF_CAMPUS).length,
+    [facultyList]
+  );
+
+  const toggleStar = (uid) => {
+    setStarredUids((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid);
+      else next.add(uid);
+      return next;
     });
-    return counts;
-  }, [filteredList]);
+  };
 
   const handleLogout = async () => {
     await logout();
     router.replace('/(auth)/login');
   };
 
-  const getRelativeTime = (timestamp) => {
-    if (!timestamp) return 'Recently';
-    const diffMin = Math.floor((Date.now() - timestamp) / 60000);
-    if (diffMin <= 1) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHours = Math.floor(diffMin / 60);
-    return `${diffHours}h ago`;
+  const handlePingNow = (faculty) => {
+    Alert.alert(
+      `Ping ${faculty.name}`,
+      `Sending availability request to ${faculty.name}.\n\nCurrent status: ${BADGE[faculty.status?.state || 'off_campus']?.label}`,
+      [{ text: 'OK' }]
+    );
   };
 
+  // Filter chips data
+  const filterChips = [
+    { id: 'ALL', label: 'All Faculty' },
+    { id: 'STARRED', label: 'Starred' },
+    ...DEPARTMENTS.map((d) => ({ id: d.id, label: d.id + ' Dept' })),
+  ];
+
   return (
-    <View style={styles.screen}>
-      {/* Top Header */}
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* ── FIXED HEADER ─────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <View style={styles.profileBadge}>
-          <Text style={styles.profileInitial}>
-            {(user?.displayName || user?.email || 'S')[0].toUpperCase()}
-          </Text>
+        <View>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandProf}>PROF-PING</Text>
+            <View style={styles.campusBadge}>
+              <Text style={styles.campusBadgeText}>CAMPUS</Text>
+            </View>
+          </View>
+          <Text style={styles.headerSub}>STUDENT DIRECTORY</Text>
         </View>
-        <View style={styles.profileMeta}>
-          <Text style={styles.name}>{user?.displayName || user?.email?.split('@')[0]}</Text>
-          <Text style={styles.dept}>
-            Student Directory • {department ? `${department}` : 'All Departments'}
-          </Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerIconBtn}>
+            <FontAwesome5 name="bell" size={15} color="#64748B" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIconBtn}>
+            <FontAwesome5 name="question-circle" size={15} color="#64748B" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Search Input Bar */}
-        <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by faculty name, cabin, subject..."
-            placeholderTextColor="#64748b"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearBtn}>
-              <Text style={styles.clearText}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={[0]}
+      >
+        {/* ── STICKY: Search + Filters ──────────────────────────────── */}
+        <View style={styles.stickyTop}>
+          {/* Search */}
+          <View style={styles.searchBar}>
+            <FontAwesome5 name="search" size={14} color="#94A3B8" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by professor, cabin, or department..."
+              placeholderTextColor="#94A3B8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <FontAwesome5 name="times-circle" solid size={15} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+          </View>
 
-        {/* Department Filter Chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-          <TouchableOpacity
-            onPress={() => setSelectedDept('ALL')}
-            style={[styles.chip, selectedDept === 'ALL' && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, selectedDept === 'ALL' && styles.chipTextActive]}>
-              All Departments ({facultyList.length})
-            </Text>
-          </TouchableOpacity>
-          {DEPARTMENTS.map((d) => (
-            <TouchableOpacity
-              key={d.id}
-              onPress={() => setSelectedDept(d.id)}
-              style={[styles.chip, selectedDept === d.id && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, selectedDept === d.id && styles.chipTextActive]}>
-                {d.id}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Live Counts Bar */}
-        <View style={styles.metricsBar}>
-          <View style={styles.metricItem}>
-            <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].color }]} />
-            <Text style={styles.metricText}>
-              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.AVAILABLE]}</Text> Avail
-            </Text>
-          </View>
-          <View style={styles.metricItem}>
-            <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.IN_LECTURE].color }]} />
-            <Text style={styles.metricText}>
-              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.IN_LECTURE]}</Text> Lecture
-            </Text>
-          </View>
-          <View style={styles.metricItem}>
-            <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.BUSY].color }]} />
-            <Text style={styles.metricText}>
-              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.BUSY]}</Text> Busy
-            </Text>
-          </View>
-          <View style={styles.metricItem}>
-            <View style={[styles.metricDot, { backgroundColor: STATUS_CONFIG[STATUS_KEYS.OFF_CAMPUS].color }]} />
-            <Text style={styles.metricText}>
-              <Text style={{ fontWeight: '700', color: '#ffffff' }}>{statusCounts[STATUS_KEYS.OFF_CAMPUS]}</Text> Off
-            </Text>
-          </View>
-        </View>
-
-        {/* Faculty Cards List */}
-        {filteredList.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No Faculty Found</Text>
-            <Text style={styles.emptyDesc}>
-              No faculty members match your query "{searchQuery}" in {selectedDept}.
-            </Text>
-            <TouchableOpacity
-              style={styles.resetBtn}
-              onPress={() => {
-                setSearchQuery('');
-                setSelectedDept('ALL');
-              }}
-            >
-              <Text style={styles.resetText}>Reset Filters</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.cardsGrid}>
-            {filteredList.map((faculty) => {
-              const cfg = STATUS_CONFIG[faculty.status?.state] || STATUS_CONFIG[STATUS_KEYS.AVAILABLE];
+          {/* Filter chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContent}>
+            {filterChips.map((chip) => {
+              const isActive = activeFilter === chip.id;
               return (
                 <TouchableOpacity
-                  key={faculty.uid}
-                  style={[styles.facultyCard, { borderColor: `${cfg.borderColor}40` }]}
-                  onPress={() => setSelectedFaculty(faculty)}
+                  key={chip.id}
+                  style={[styles.chip, isActive && styles.chipActive]}
+                  onPress={() => setActiveFilter(chip.id)}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.cardHeader}>
-                    <View style={styles.facultyMeta}>
-                      <Text style={styles.facultyName}>{faculty.name}</Text>
-                      <Text style={styles.facultyDesig}>
-                        {faculty.department} • {faculty.designation}
-                      </Text>
-                    </View>
-
-                    {/* Status Badge */}
-                    <View style={[styles.statusBadge, { backgroundColor: `${cfg.color}20`, borderColor: cfg.color }]}>
-                      <View style={[styles.statusBadgeDot, { backgroundColor: cfg.color }]} />
-                      <Text style={[styles.statusBadgeText, { color: cfg.color }]}>
-                        {cfg.label}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Broadcast Message */}
-                  <View style={styles.messageBox}>
-                    <Text style={styles.messageText}>
-                      "{faculty.status?.message || cfg.defaultMessage}"
-                    </Text>
-                    <Text style={styles.timeAgo}>
-                      {getRelativeTime(faculty.status?.updatedAt)}
-                    </Text>
-                  </View>
+                  {chip.id === 'STARRED' && (
+                    <FontAwesome5
+                      name="star"
+                      solid
+                      size={11}
+                      color={isActive ? '#ffffff' : '#F59E0B'}
+                      style={{ marginRight: 6 }}
+                    />
+                  )}
+                  <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                    {chip.label}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
+          </ScrollView>
+        </View>
+
+        {/* ── Campus Activity Banner ─────────────────────────────────── */}
+        <View style={styles.activityBanner}>
+          <View style={styles.activityLeft}>
+            <View style={styles.greenPulse} />
+            <Text style={styles.activityText}>
+              Today's Campus Activity:{' '}
+              <Text style={styles.activityCount}>{onlineCount} Faculty Online</Text>
+              {' & Syncing'}
+            </Text>
           </View>
-        )}
-      </ScrollView>
+          <FontAwesome5 name="wifi" size={14} color="#16A34A" />
+        </View>
 
-      {/* Faculty Detail Modal */}
-      {selectedFaculty && (
-        <Modal
-          visible={true}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setSelectedFaculty(null)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <View>
-                  <Text style={styles.modalTitle}>{selectedFaculty.name}</Text>
-                  <Text style={styles.modalSubtitle}>
-                    {selectedFaculty.department} • {selectedFaculty.designation}
+        {/* ── STARRED FACULTY ─────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <FontAwesome5 name="star" solid size={11} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.sectionTitle}>STARRED FACULTY</Text>
+            </View>
+            <TouchableOpacity>
+              <Text style={styles.manageLink}>Manage ({starredUids.size})</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.starredScroll}>
+            {starredList.length === 0 && (
+              <View style={styles.noStarredRow}>
+                <Text style={styles.noStarredText}>Tap </Text>
+                <FontAwesome5 name="star" solid size={11} color="#F59E0B" />
+                <Text style={styles.noStarredText}> on a faculty card to star them</Text>
+              </View>
+            )}
+            {starredList.map((fac) => {
+              const av = getAvatarColor(fac.name);
+              const badge = BADGE[fac.status?.state || 'off_campus'];
+              return (
+                <TouchableOpacity
+                  key={fac.uid}
+                  style={styles.starredItem}
+                  onPress={() => setSelectedFaculty(fac)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.starredAvatar, { backgroundColor: av.bg }]}>
+                    <Text style={[styles.starredAvatarText, { color: av.text }]}>
+                      {getInitials(fac.name)}
+                    </Text>
+                    <View style={[styles.starredStatusDot, { backgroundColor: badge.dot }]} />
+                  </View>
+                  <Text style={styles.starredName} numberOfLines={1}>
+                    {fac.name.split(' ')[0]}
                   </Text>
-                </View>
-                <TouchableOpacity onPress={() => setSelectedFaculty(null)} style={styles.modalCloseBtn}>
-                  <Text style={styles.modalCloseText}>✕</Text>
+                  <Text style={styles.starredDept} numberOfLines={1}>
+                    {fac.department} Dept
+                  </Text>
                 </TouchableOpacity>
-              </View>
+              );
+            })}
+            <TouchableOpacity style={styles.addStarredBtn} onPress={() => setActiveFilter('ALL')}>
+              <FontAwesome5 name="plus" size={15} color="#94A3B8" />
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
 
-              <View style={styles.modalBody}>
-                <View style={[
-                  styles.modalStatusBox,
-                  { backgroundColor: `${STATUS_CONFIG[selectedFaculty.status?.state]?.color}15`, borderColor: STATUS_CONFIG[selectedFaculty.status?.state]?.borderColor }
-                ]}>
-                  <Text style={[styles.modalStatusLabel, { color: STATUS_CONFIG[selectedFaculty.status?.state]?.color }]}>
-                    ● {STATUS_CONFIG[selectedFaculty.status?.state]?.label}
-                  </Text>
-                  <Text style={styles.modalStatusMsg}>
-                    "{selectedFaculty.status?.message}"
-                  </Text>
-                  <Text style={styles.modalTime}>
-                    Last updated: {new Date(selectedFaculty.status?.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                </View>
+        {/* ── LIVE DIRECTORY ──────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              LIVE FACULTY DIRECTORY ({filteredList.length})
+            </Text>
+            <TouchableOpacity style={styles.filterBtn}>
+              <FontAwesome5 name="sliders-h" size={11} color="#475569" style={{ marginRight: 6 }} />
+              <Text style={styles.filterBtnText}>Filter</Text>
+            </TouchableOpacity>
+          </View>
 
-                <View style={styles.modalMetaRow}>
-                  <Text style={styles.modalMetaLabel}>Email:</Text>
-                  <Text style={styles.modalMetaValue}>{selectedFaculty.email}</Text>
-                </View>
-                <View style={styles.modalMetaRow}>
-                  <Text style={styles.modalMetaLabel}>Department:</Text>
-                  <Text style={styles.modalMetaValue}>{selectedFaculty.department}</Text>
-                </View>
-              </View>
-
+          {filteredList.length === 0 ? (
+            <View style={styles.emptyState}>
+              <FontAwesome5 name="search" size={32} color="#CBD5E1" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyTitle}>No Faculty Found</Text>
+              <Text style={styles.emptyDesc}>
+                Try a different search or filter.
+              </Text>
               <TouchableOpacity
-                style={styles.modalActionBtn}
-                onPress={() => setSelectedFaculty(null)}
+                style={styles.resetBtn}
+                onPress={() => { setSearchQuery(''); setActiveFilter('ALL'); }}
               >
-                <Text style={styles.modalActionText}>Close</Text>
+                <Text style={styles.resetBtnText}>Reset Filters</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </Modal>
-      )}
+          ) : (
+            filteredList.map((faculty) => {
+              const badge = BADGE[faculty.status?.state || 'off_campus'];
+              const av = getAvatarColor(faculty.name);
+              const isStarred = starredUids.has(faculty.uid);
+              const msg = faculty.status?.message || '';
+
+              return (
+                <TouchableOpacity
+                  key={faculty.uid}
+                  style={styles.facultyCard}
+                  onPress={() => setSelectedFaculty(faculty)}
+                  activeOpacity={0.92}
+                >
+                  {/* Row 1: Avatar + Info + Badge */}
+                  <View style={styles.cardTop}>
+                    <View style={[styles.avatar, { backgroundColor: av.bg }]}>
+                      <Text style={[styles.avatarText, { color: av.text }]}>
+                        {getInitials(faculty.name)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.cardInfo}>
+                      <View style={styles.cardNameRow}>
+                        <View style={styles.cardNameInline}>
+                          <Text style={styles.cardName} numberOfLines={1}>
+                            {faculty.name}
+                          </Text>
+                          {isStarred && (
+                            <FontAwesome5 name="star" solid size={11} color="#F59E0B" style={{ marginLeft: 5 }} />
+                          )}
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                          <View style={[styles.badgeDot, { backgroundColor: badge.dot }]} />
+                          <Text style={[styles.badgeText, { color: badge.text }]}>
+                            {badge.label}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.cardDesig} numberOfLines={1}>
+                        {faculty.designation || 'Faculty'} • {faculty.department} Dept
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Row 2: Location + Ping */}
+                  <View style={styles.cardMid}>
+                    <View style={styles.locationRow}>
+                      <FontAwesome5 name="map-marker-alt" size={11} color="#64748B" style={{ marginRight: 6 }} />
+                      <Text style={styles.locationText} numberOfLines={1}>
+                        {msg || `${faculty.department} Dept Cabin`}
+                      </Text>
+                    </View>
+                    {faculty.status?.state === STATUS_KEYS.AVAILABLE && (
+                      <TouchableOpacity
+                        style={styles.pingBtn}
+                        onPress={() => handlePingNow(faculty)}
+                        activeOpacity={0.85}
+                      >
+                        <FontAwesome5 name="bolt" size={11} color="#ffffff" style={{ marginRight: 5 }} />
+                        <Text style={styles.pingBtnText}>Ping Now</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Row 3: Status context line */}
+                  {faculty.status?.state === STATUS_KEYS.IN_LECTURE && msg ? (
+                    <View style={styles.contextChip}>
+                      <Text style={[styles.contextText, { color: '#BE185D' }]}>{msg}</Text>
+                    </View>
+                  ) : faculty.status?.state === STATUS_KEYS.BUSY && msg ? (
+                    <View style={styles.returningRow}>
+                      <FontAwesome5 name="clock" size={11} color="#B45309" style={{ marginRight: 5 }} />
+                      <Text style={styles.returningText}>{msg}</Text>
+                    </View>
+                  ) : null}
+
+                  {/* Star button */}
+                  <TouchableOpacity
+                    style={styles.starBtn}
+                    onPress={() => toggleStar(faculty.uid)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <FontAwesome5
+                      name="star"
+                      solid={isStarred}
+                      size={18}
+                      color={isStarred ? '#F59E0B' : '#CBD5E1'}
+                    />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
+
+      {/* ── BOTTOM NAV ─────────────────────────────────────────────────── */}
+      <View style={styles.bottomNav}>
+        {[
+          { id: 'home', iconName: 'home', label: 'Home' },
+          { id: 'maps', iconName: 'map-marked-alt', label: 'Maps' },
+          { id: 'favorites', iconName: 'star', solid: true, label: 'Favorites' },
+          { id: 'profile', iconName: 'user-alt', label: 'Profile' },
+        ].map((tab) => {
+          const isActive = tab.id === 'favorites' ? activeFilter === 'STARRED' : activeTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={styles.navTab}
+              onPress={() => {
+                if (tab.id === 'favorites') setActiveFilter('STARRED');
+                else if (tab.id === 'profile') handleLogout();
+                else setActiveTab(tab.id);
+              }}
+              activeOpacity={0.8}
+            >
+              <FontAwesome5
+                name={tab.iconName}
+                solid={tab.solid || isActive}
+                size={18}
+                color={isActive ? BLUE : '#94A3B8'}
+                style={{ marginBottom: 4 }}
+              />
+              <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* ── FACULTY DETAIL MODAL ─────────────────────────────────────── */}
+      {selectedFaculty && (() => {
+        const fac = selectedFaculty;
+        const badge = BADGE[fac.status?.state || 'off_campus'];
+        const av = getAvatarColor(fac.name);
+        const isStarred = starredUids.has(fac.uid);
+        return (
+          <Modal
+            visible
+            transparent
+            animationType="slide"
+            onRequestClose={() => setSelectedFaculty(null)}
+          >
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalSheet}>
+                {/* Handle */}
+                <View style={styles.modalHandle} />
+
+                {/* Avatar + Name */}
+                <View style={styles.modalTop}>
+                  <View style={[styles.modalAvatar, { backgroundColor: av.bg }]}>
+                    <Text style={[styles.modalAvatarText, { color: av.text }]}>
+                      {getInitials(fac.name)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalName}>{fac.name}</Text>
+                    <Text style={styles.modalDesig}>
+                      {fac.designation || 'Faculty'} • {fac.department}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => toggleStar(fac.uid)}>
+                    <FontAwesome5
+                      name="star"
+                      solid={isStarred}
+                      size={24}
+                      color={isStarred ? '#F59E0B' : '#CBD5E1'}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Status Block */}
+                <View style={[styles.modalStatusBox, { backgroundColor: badge.bg }]}>
+                  <View style={[styles.badgeDot, { backgroundColor: badge.dot, marginRight: 8 }]} />
+                  <View>
+                    <Text style={[styles.modalStatusLabel, { color: badge.text }]}>{badge.label}</Text>
+                    {fac.status?.message ? (
+                      <Text style={styles.modalStatusMsg}>"{fac.status.message}"</Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                {/* Last updated */}
+                <Text style={styles.modalUpdated}>
+                  Last updated:{' '}
+                  {fac.status?.updatedAt
+                    ? new Date(fac.status.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '—'}
+                </Text>
+
+                {/* Actions */}
+                {fac.status?.state === STATUS_KEYS.AVAILABLE && (
+                  <TouchableOpacity
+                    style={styles.modalPingBtn}
+                    onPress={() => { setSelectedFaculty(null); handlePingNow(fac); }}
+                  >
+                    <FontAwesome5 name="bolt" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.modalPingText}>Ping Now</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedFaculty(null)}>
+                  <Text style={styles.modalCloseBtnText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        );
+      })()}
     </View>
   );
 }
 
+// ── STYLES ─────────────────────────────────────────────────────────────────
+const NAVY = '#0F172A';
+const BLUE = '#2563EB';
+const GRAY = '#6B7280';
+const LIGHT_BG = '#F8FAFC';
+const BORDER = '#E2E8F0';
+
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#090d16',
-  },
+  root: { flex: 1, backgroundColor: LIGHT_BG },
+
+  // Header
   header: {
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  profileBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#059669',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  profileInitial: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  profileMeta: {
-    flex: 1,
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  dept: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginTop: 2,
-  },
-  logoutBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-  },
-  logoutText: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  container: {
-    padding: 20,
-  },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0f172a',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    marginBottom: 14,
-  },
-  searchIcon: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    color: '#ffffff',
-    fontSize: 14,
-  },
-  clearBtn: {
-    padding: 6,
-  },
-  clearText: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  chipsScroll: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  chip: {
-    backgroundColor: '#0f172a',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  chipActive: {
-    backgroundColor: '#2563eb',
-    borderColor: '#2563eb',
-  },
-  chipText: {
-    color: '#94a3b8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  chipTextActive: {
-    color: '#ffffff',
-  },
-  metricsBar: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#0f172a',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 18,
+    paddingHorizontal: 18,
+    paddingTop: 48,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
   },
-  metricItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  metricDot: {
-    width: 8,
-    height: 8,
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandProf: { fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: -0.3 },
+  campusBadge: {
+    backgroundColor: '#DBEAFE',
+    paddingVertical: 2,
+    paddingHorizontal: 7,
     borderRadius: 4,
   },
-  metricText: {
-    fontSize: 11,
-    color: '#94a3b8',
+  campusBadgeText: { fontSize: 10, fontWeight: '800', color: BLUE, letterSpacing: 0.5 },
+  headerSub: { fontSize: 11, color: GRAY, fontWeight: '600', marginTop: 2, letterSpacing: 0.5 },
+  headerActions: { flexDirection: 'row', gap: 8 },
+  headerIconBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center', justifyContent: 'center',
   },
-  cardsGrid: {
-    gap: 12,
+  headerIcon: { fontSize: 15 },
+
+  // Scroll
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 100 },
+
+  // Sticky top (search + chips)
+  stickyTop: { backgroundColor: LIGHT_BG, paddingTop: 12, paddingBottom: 4 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 50,
+    marginHorizontal: 16,
+    paddingHorizontal: 14,
+    height: 44,
+    gap: 10,
   },
-  facultyCard: {
-    backgroundColor: '#0f172a',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1.5,
+  searchInput: { flex: 1, fontSize: 13, color: NAVY },
+  chipsScroll: { marginTop: 10 },
+  chipsContent: { paddingHorizontal: 16, gap: 8 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6, paddingHorizontal: 14,
+    borderRadius: 50, borderWidth: 1.5,
+    borderColor: BORDER, backgroundColor: '#ffffff',
   },
-  cardHeader: {
+  chipActive: { backgroundColor: BLUE, borderColor: BLUE },
+  chipText: { fontSize: 12, fontWeight: '600', color: GRAY },
+  chipTextActive: { color: '#ffffff' },
+
+  // Activity banner
+  activityBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  activityLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  greenPulse: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22C55E' },
+  activityText: { fontSize: 12, color: '#065F46', flex: 1 },
+  activityCount: { fontWeight: '700' },
+
+  // Sections
+  section: { paddingHorizontal: 16, marginTop: 22 },
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 12,
   },
-  facultyMeta: {
-    flex: 1,
-    marginRight: 10,
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  sectionTitle: {
+    fontSize: 12, fontWeight: '800', color: NAVY,
+    letterSpacing: 0.6, textTransform: 'uppercase',
   },
-  facultyName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-  facultyDesig: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginTop: 2,
-  },
-  statusBadge: {
+  manageLink: { fontSize: 12, fontWeight: '600', color: BLUE },
+  filterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 5, paddingHorizontal: 10,
     borderRadius: 6,
-    borderWidth: 1,
   },
-  statusBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  filterBtnText: { fontSize: 12, fontWeight: '600', color: NAVY },
+
+  // Starred Faculty
+  starredScroll: { paddingRight: 8, gap: 12 },
+  starredItem: { alignItems: 'center', width: 64 },
+  starredAvatar: {
+    width: 54, height: 54, borderRadius: 27,
+    alignItems: 'center', justifyContent: 'center',
+    position: 'relative',
   },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+  starredAvatarText: { fontSize: 18, fontWeight: '800' },
+  starredStatusDot: {
+    width: 12, height: 12, borderRadius: 6,
+    position: 'absolute', bottom: 2, right: 2,
+    borderWidth: 2, borderColor: '#ffffff',
   },
-  messageBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 8,
-    padding: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  starredName: {
+    fontSize: 11, fontWeight: '600', color: NAVY,
+    marginTop: 5, textAlign: 'center',
   },
-  messageText: {
-    fontSize: 13,
-    color: '#cbd5e1',
-    flex: 1,
-    fontStyle: 'italic',
+  starredDept: { fontSize: 10, color: GRAY, textAlign: 'center', marginTop: 1 },
+  noStarredRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
+  noStarredText: { fontSize: 12, color: GRAY, fontStyle: 'italic' },
+  addStarredBtn: {
+    width: 54, height: 54, borderRadius: 27,
+    borderWidth: 2, borderColor: BORDER,
+    borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
   },
-  timeAgo: {
-    fontSize: 11,
-    color: '#64748b',
-    marginLeft: 8,
-  },
-  emptyState: {
-    backgroundColor: '#0f172a',
+
+  // Faculty cards
+  facultyCard: {
+    backgroundColor: '#ffffff',
     borderRadius: 14,
-    padding: 32,
-    alignItems: 'center',
-    marginTop: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 6,
-  },
-  emptyDesc: {
-    fontSize: 13,
-    color: '#94a3b8',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  resetBtn: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  resetText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#0f172a',
-    borderRadius: 16,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    paddingBottom: 12,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  modalSubtitle: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginTop: 2,
-  },
-  modalCloseBtn: {
-    padding: 4,
-  },
-  modalCloseText: {
-    color: '#94a3b8',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  modalBody: {
-    marginBottom: 20,
-  },
-  modalStatusBox: {
+    borderColor: BORDER,
     padding: 14,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    marginBottom: 16,
+    marginBottom: 10,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  modalStatusLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 4,
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  avatar: {
+    width: 46, height: 46, borderRadius: 23,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 12,
   },
-  modalStatusMsg: {
-    fontSize: 14,
-    color: '#ffffff',
-    fontStyle: 'italic',
-    marginBottom: 6,
-  },
-  modalTime: {
-    fontSize: 11,
-    color: '#94a3b8',
-  },
-  modalMetaRow: {
+  avatarText: { fontSize: 16, fontWeight: '800' },
+  cardInfo: { flex: 1 },
+  cardNameRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  modalMetaLabel: {
-    color: '#94a3b8',
-    fontSize: 13,
-  },
-  modalMetaValue: {
-    color: '#f8fafc',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  modalActionBtn: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
-    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginBottom: 3,
+    paddingRight: 26,
   },
-  modalActionText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+  cardNameInline: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 },
+  cardName: { fontSize: 14, fontWeight: '700', color: NAVY },
+  cardDesig: { fontSize: 11, color: GRAY },
+  statusBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 3, paddingHorizontal: 8,
+    borderRadius: 50, gap: 4,
   },
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText: { fontSize: 11, fontWeight: '700' },
+
+  cardMid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  locationRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  locationText: { fontSize: 12, color: GRAY, flex: 1 },
+  pingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: BLUE, paddingVertical: 5, paddingHorizontal: 12,
+    borderRadius: 50,
+  },
+  pingBtnText: { fontSize: 11, fontWeight: '700', color: '#ffffff' },
+
+  contextChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FCE7F3',
+    paddingVertical: 3, paddingHorizontal: 10,
+    borderRadius: 50, marginTop: 8,
+  },
+  contextText: { fontSize: 11, fontWeight: '600' },
+  returningRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  returningText: { fontSize: 11, color: '#D97706', fontWeight: '500' },
+
+  starBtn: { position: 'absolute', top: 14, right: 14, padding: 4 },
+
+  // Empty state
+  emptyState: { alignItems: 'center', paddingVertical: 48 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: NAVY, marginBottom: 6 },
+  emptyDesc: { fontSize: 13, color: GRAY, textAlign: 'center', marginBottom: 16 },
+  resetBtn: {
+    backgroundColor: BLUE, paddingVertical: 8, paddingHorizontal: 20,
+    borderRadius: 50,
+  },
+  resetBtnText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
+
+  // Bottom Nav
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingBottom: 20,
+    paddingTop: 8,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  navTab: { flex: 1, alignItems: 'center', paddingVertical: 4 },
+  navLabel: { fontSize: 10, color: GRAY, fontWeight: '500' },
+  navLabelActive: { color: BLUE, fontWeight: '700' },
+
+  // Modal
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center', marginBottom: 20,
+  },
+  modalTop: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  modalAvatar: {
+    width: 54, height: 54, borderRadius: 27,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalAvatarText: { fontSize: 20, fontWeight: '800' },
+  modalName: { fontSize: 17, fontWeight: '800', color: NAVY },
+  modalDesig: { fontSize: 12, color: GRAY, marginTop: 2 },
+  modalStatusBox: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    borderRadius: 12, padding: 14, marginBottom: 12,
+  },
+  modalStatusLabel: { fontSize: 14, fontWeight: '700' },
+  modalStatusMsg: { fontSize: 12, color: GRAY, marginTop: 2, fontStyle: 'italic' },
+  modalUpdated: { fontSize: 12, color: GRAY, marginBottom: 20 },
+  modalPingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BLUE, borderRadius: 50,
+    height: 48,
+    marginBottom: 10,
+  },
+  modalPingText: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
+  modalCloseBtn: {
+    backgroundColor: '#F1F5F9', borderRadius: 50,
+    height: 44, alignItems: 'center', justifyContent: 'center',
+  },
+  modalCloseBtnText: { fontSize: 14, fontWeight: '600', color: NAVY },
 });
