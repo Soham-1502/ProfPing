@@ -51,8 +51,7 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
   }
 
   // Format and validate message (clip to max 140 chars per security rules)
-  const fallbackMessage = STATUS_CONFIG[state]?.defaultMessage || '';
-  const cleanMessage = (customMessage && customMessage.trim()) ? customMessage.trim().slice(0, 140) : fallbackMessage;
+  const cleanMessage = typeof customMessage === 'string' ? customMessage.trim().slice(0, 140) : '';
 
   const isPlaceholderKey = !process.env.EXPO_PUBLIC_FIREBASE_API_KEY || process.env.EXPO_PUBLIC_FIREBASE_API_KEY === 'demo-api-key';
   const now = Date.now();

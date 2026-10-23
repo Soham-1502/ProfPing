@@ -138,10 +138,8 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
   const [showPicker, setShowPicker] = useState(false);
   const resetTimeoutRef = useRef(null);
 
-  // Custom status modal & history modal
-  const [customStatusModalVisible, setCustomStatusModalVisible] = useState(false);
-  const [customStatusInput, setCustomStatusInput] = useState('');
-  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  // Temporary typing area note state
+  const [typingNote, setTypingNote] = useState('');
 
   // Active bottom nav tab: 'home' | 'history' | 'profile'
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -153,10 +151,23 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
     };
   }, []);
 
-  // Handle 1-Tap status tap
+  // Handle 1-Tap status button tap:
+  // Checks if text is typed -> sends together with status and immediately empties text box.
+  // If text box is empty -> sends status with blank note (''), stopping old messages from attaching.
   const handleSelectStatus = async (card) => {
-    const message = customNote.trim() || card.subtitle;
-    await executeBroadcast(card.backendState, message);
+    const noteToSend = typingNote.trim();
+    setTypingNote('');
+    await executeBroadcast(card.backendState, noteToSend);
+  };
+
+  // Handle inline "Save Note" checkmark button:
+  // Attaches newly typed text to currently active status, broadcasts, and immediately empties text box.
+  const handleSaveInlineNote = async () => {
+    const noteToSend = typingNote.trim();
+    if (!noteToSend) return;
+    setTypingNote('');
+    const activeCard = STATUS_CARDS.find((c) => c.id === selectedStatusId) || STATUS_CARDS[0];
+    await executeBroadcast(activeCard.backendState, noteToSend);
   };
 
   const executeBroadcast = async (backendState, message) => {
@@ -191,7 +202,7 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
           resetTimeoutRef.current = setTimeout(async () => {
             const defaultCard = STATUS_CARDS.find((c) => c.id === 'available') || STATUS_CARDS[0];
             try {
-              await broadcastStatusToFirebase(defaultCard.backendState, defaultCard.subtitle);
+              await broadcastStatusToFirebase(defaultCard.backendState, '');
             } catch (e) {
               console.error('Auto-reset broadcast error:', e);
             }
@@ -204,22 +215,6 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
     } finally {
       setBroadcasting(false);
     }
-  };
-
-  // Handle "Update Campus Broadcast" big button
-  const handleUpdateBroadcast = async () => {
-    const activeCard = STATUS_CARDS.find((c) => c.id === selectedStatusId) || STATUS_CARDS[0];
-    const message = customNote.trim() || activeCard.subtitle;
-    await executeBroadcast(activeCard.backendState, message);
-  };
-
-  // Handle custom status submission
-  const handleSaveCustomStatus = async () => {
-    if (!customStatusInput.trim()) return;
-    setCustomNote(customStatusInput.trim());
-    setCustomStatusModalVisible(false);
-    const activeCard = STATUS_CARDS.find((c) => c.id === selectedStatusId) || STATUS_CARDS[0];
-    await executeBroadcast(activeCard.backendState, customStatusInput.trim());
   };
 
   const handleBackPress = () => {
@@ -349,31 +344,66 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
               <FontAwesome5 name="wifi" size={13} color={activeCardObj.activeBg || '#15803D'} />
             </View>
 
-            {/* ── 4. CUSTOM CONTEXT NOTE ──────────────────────────────── */}
+            {/* Active Live Broadcast Note Display (if currently set) */}
+            {customNote ? (
+              <View style={styles.activeNoteBanner}>
+                <FontAwesome5 name="quote-left" size={10} color="#4326B6" style={{ marginRight: 6, opacity: 0.8 }} />
+                <Text style={styles.activeNoteText} numberOfLines={2}>
+                  "{customNote}"
+                </Text>
+                <Text style={styles.activeNoteMeta}>• {lastUpdatedText}</Text>
+              </View>
+            ) : null}
+
+            {/* ── 4. PERMANENT NOTE TYPING AREA (DIRECTLY BELOW LIVE BANNER) ── */}
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeaderTitle}>CUSTOM CONTEXT NOTE</Text>
-              <Text style={styles.sectionHeaderMeta}>Updated {lastUpdatedText}</Text>
+              <Text style={styles.sectionHeaderTitle}>CUSTOM NOTE (OPTIONAL)</Text>
+              <Text style={styles.sectionHeaderMeta}>
+                {typingNote.trim().length > 0 ? 'Ready to broadcast' : 'Temporary typing area'}
+              </Text>
             </View>
 
-            <View style={styles.contextNoteCard}>
-              <FontAwesome5 name="comment-alt" size={14} color="#64748B" regular style={styles.contextNoteIcon} />
+            <View style={styles.inlineNoteCard}>
+              <FontAwesome5 name="comment-alt" size={13} color="#64748B" regular style={styles.noteInputIcon} />
               <TextInput
-                style={styles.contextNoteInput}
-                value={customNote}
-                onChangeText={setCustomNote}
-                placeholder="Conducting viva in Lab 2"
+                style={styles.inlineNoteInput}
+                value={typingNote}
+                onChangeText={setTypingNote}
+                placeholder="Type note (e.g. In Room 528)..."
                 placeholderTextColor="#94A3B8"
                 maxLength={140}
+                returnKeyType="done"
+                onSubmitEditing={handleSaveInlineNote}
               />
+              {typingNote.length > 0 ? (
+                <TouchableOpacity
+                  style={styles.clearNoteBtn}
+                  onPress={() => setTypingNote('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              ) : null}
+              {/* Inline Save Note Checkmark Button */}
               <TouchableOpacity
-                style={styles.editPencilBtn}
-                onPress={() => {
-                  setCustomStatusInput(customNote);
-                  setCustomStatusModalVisible(true);
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={[
+                  styles.inlineSaveBtn,
+                  typingNote.trim().length > 0 && styles.inlineSaveBtnActive,
+                ]}
+                onPress={handleSaveInlineNote}
+                disabled={!typingNote.trim() || broadcasting}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.75}
               >
-                <FontAwesome5 name="pen" size={12} color="#64748B" />
+                {broadcasting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <FontAwesome5
+                    name="check"
+                    size={12}
+                    color={typingNote.trim().length > 0 ? '#FFFFFF' : '#94A3B8'}
+                  />
+                )}
               </TouchableOpacity>
             </View>
 
@@ -528,48 +558,6 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
             )}
 
           </ScrollView>
-
-      {/* ── CUSTOM STATUS MODAL ─────────────────────────────────────── */}
-      <Modal
-        visible={customStatusModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCustomStatusModalVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalDialog}>
-            <Text style={styles.modalTitle}>Set Custom Status</Text>
-            <Text style={styles.modalSubtitle}>
-              Type your custom availability note to broadcast across campus:
-            </Text>
-
-            <TextInput
-              style={styles.modalInput}
-              value={customStatusInput}
-              onChangeText={setCustomStatusInput}
-              placeholder="e.g. In Room 402 for tutorial until 11:30 AM..."
-              placeholderTextColor="#94A3B8"
-              autoFocus
-              maxLength={140}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setCustomStatusModalVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalSaveBtn}
-                onPress={handleSaveCustomStatus}
-              >
-                <Text style={styles.modalSaveText}>Broadcast</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -820,35 +808,83 @@ const styles = StyleSheet.create({
     color: '#4326B6',
   },
 
-  // 4. Custom Context Note
-  contextNoteCard: {
-    backgroundColor: '#FFFFFF',
+  // Active Live Broadcast Note Display
+  activeNoteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
     borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: -8,
+    marginBottom: 14,
+  },
+  activeNoteText: {
+    flex: 1,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: '#4326B6',
+    fontStyle: 'italic',
+  },
+  activeNoteMeta: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10.5,
+    color: '#6B21A8',
+    marginLeft: 6,
+  },
+
+  // 4. Permanent Note Typing Area (Inline)
+  inlineNoteCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 16,
     shadowColor: '#1A191F',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  contextNoteIcon: {
-    marginRight: 10,
+  noteInputIcon: {
+    marginRight: 8,
   },
-  contextNoteInput: {
+  inlineNoteInput: {
     flex: 1,
     fontFamily: 'Inter_500Medium',
-    fontSize: 13.5,
+    fontSize: 13,
     color: '#0F172A',
-    padding: 0,
+    paddingVertical: 0,
+    height: '100%',
   },
-  editPencilBtn: {
+  clearNoteBtn: {
     padding: 4,
+    marginRight: 4,
+  },
+  inlineSaveBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  inlineSaveBtnActive: {
+    backgroundColor: '#4326B6',
+    borderColor: '#4326B6',
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
 
   // 5. 2-Column Status Grid (Core 4 Statuses)
