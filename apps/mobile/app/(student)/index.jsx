@@ -9,54 +9,88 @@ import {
   Modal,
   Alert,
   StatusBar,
+  Image,
+  Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { FontAwesome5 } from '@expo/vector-icons';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from '@expo-google-fonts/inter';
 import { useAuth } from '../../src/context/AuthContext';
-import { STATUS_CONFIG, STATUS_KEYS, DEPARTMENTS } from '@profping/shared';
+import { STATUS_KEYS } from '@profping/shared';
 import { subscribeToLiveDirectory } from '../../src/services/directoryService';
+import FloatingNavbar from '../../src/components/FloatingNavbar';
 
-// ── Avatar color palette (cycles by name initial) ─────────────────────────
-const AVATAR_COLORS = [
-  { bg: '#FEF3C7', text: '#92400E' }, // amber
-  { bg: '#FCE7F3', text: '#9D174D' }, // pink
-  { bg: '#D1FAE5', text: '#065F46' }, // green
-  { bg: '#DBEAFE', text: '#1E40AF' }, // blue
-  { bg: '#EDE9FE', text: '#5B21B6' }, // purple
-  { bg: '#FEE2E2', text: '#991B1B' }, // red
-  { bg: '#E0F2FE', text: '#0369A1' }, // sky
-  { bg: '#FFF7ED', text: '#9A3412' }, // orange
-];
-
-function getAvatarColor(name = '') {
-  const idx = (name.charCodeAt(0) || 0) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[idx];
-}
-
-function getInitials(name = '') {
-  const parts = name.trim().split(' ');
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return (parts[0]?.[0] || 'F').toUpperCase();
-}
-
-// ── Status badge config (light-mode colors) ────────────────────────────────
-const BADGE = {
-  available:   { label: 'Available',   bg: '#DCFCE7', text: '#16A34A', dot: '#22C55E' },
-  busy:        { label: 'Busy (DND)',  bg: '#FEF9C3', text: '#A16207', dot: '#EAB308' },
-  in_lecture:  { label: 'In Lecture',  bg: '#FCE7F3', text: '#BE185D', dot: '#EC4899' },
-  off_campus:  { label: 'Off Campus',  bg: '#F1F5F9', text: '#64748B', dot: '#94A3B8' },
+// ── Status Config Matching Campus Clarity Design System ──────────────────────
+const BADGE_MAP = {
+  available: {
+    label: 'Available',
+    dotColor: '#16A34A',
+    badgeBg: '#DCFCE7',
+    badgeText: '#15803D',
+    icon: 'check-circle',
+  },
+  busy: {
+    label: 'Busy (DND)',
+    dotColor: '#F59E0B',
+    badgeBg: '#FEF3C7',
+    badgeText: '#B45309',
+    icon: 'clock',
+  },
+  in_lecture: {
+    label: 'In Lecture',
+    dotColor: '#2563EB',
+    badgeBg: '#DBEAFE',
+    badgeText: '#1D4ED8',
+    icon: 'book-open',
+  },
+  off_campus: {
+    label: 'Off Campus',
+    dotColor: '#DC2626',
+    badgeBg: '#FEE2E2',
+    badgeText: '#B91C1C',
+    icon: 'times-circle',
+  },
 };
 
 export default function StudentHomeScreen() {
-  const { user, department, logout } = useAuth();
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
+
+  const { user } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams();
 
   const [facultyList, setFacultyList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'STARRED' | dept id
-  const [starredUids, setStarredUids] = useState(new Set());
-  const [selectedFaculty, setSelectedFaculty] = useState(null);
-  const [activeTab, setActiveTab] = useState('home'); // bottom nav tab
+  const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'STARRED' | dept
+
+  useEffect(() => {
+    if (params?.filter === 'STARRED') {
+      setActiveFilter('STARRED');
+    }
+  }, [params?.filter]);
+
+  const [starredUids, setStarredUids] = useState(
+    new Set(['demo-faculty-ecs-01', 'demo-faculty-ecs-02', 'demo-faculty-cmpn-04', 'demo-faculty-robotics-01'])
+  );
+
+  // Modal & interaction states
+  const [pingModalFaculty, setPingModalFaculty] = useState(null);
+  const [pingReason, setPingReason] = useState('Doubt in Assignment');
+  const [pingSuccess, setPingSuccess] = useState(false);
+  const [queuedUids, setQueuedUids] = useState(new Set());
 
   // Subscribe to live directory
   useEffect(() => {
@@ -66,723 +100,1099 @@ export default function StudentHomeScreen() {
     return () => unsubscribe();
   }, []);
 
-  // Filtered list
+  // Filter chips
+  const filterChips = [
+    { id: 'ALL', label: 'All Faculty' },
+    { id: 'STARRED', label: 'Starred', isStar: true },
+    { id: 'ECS', label: 'ECS Dept' },
+    { id: 'CMPN', label: 'Comp Sci' },
+    { id: 'INFT', label: 'IT Dept' },
+    { id: 'EXTC', label: 'EXTC Dept' },
+    { id: 'Robotics', label: 'Robotics' },
+  ];
+
+  // Filtered List
   const filteredList = useMemo(() => {
     return facultyList.filter((item) => {
       if (activeFilter === 'STARRED' && !starredUids.has(item.uid)) return false;
-      if (activeFilter !== 'ALL' && activeFilter !== 'STARRED' && item.department !== activeFilter) return false;
+      if (activeFilter !== 'ALL' && activeFilter !== 'STARRED') {
+        const itemDept = (item.department || '').toUpperCase();
+        if (activeFilter === 'CMPN' && !itemDept.includes('CMPN') && !itemDept.includes('COMP')) return false;
+        if (activeFilter === 'ECS' && !itemDept.includes('ECS')) return false;
+        if (activeFilter === 'INFT' && !itemDept.includes('INFT') && !itemDept.includes('IT')) return false;
+        if (activeFilter === 'EXTC' && !itemDept.includes('EXTC')) return false;
+        if (activeFilter === 'Robotics' && !itemDept.includes('ROBOT')) return false;
+      }
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
         (item.name || '').toLowerCase().includes(q) ||
         (item.designation || '').toLowerCase().includes(q) ||
         (item.status?.message || '').toLowerCase().includes(q) ||
+        (item.cabin || '').toLowerCase().includes(q) ||
         (item.department || '').toLowerCase().includes(q)
       );
     });
   }, [facultyList, activeFilter, searchQuery, starredUids]);
 
-  // Starred faculty list (from full list)
-  const starredList = useMemo(
-    () => facultyList.filter((f) => starredUids.has(f.uid)),
-    [facultyList, starredUids]
-  );
+  const handlePingSubmit = () => {
+    setPingSuccess(true);
+    setTimeout(() => {
+      setPingSuccess(false);
+      setPingModalFaculty(null);
+    }, 1400);
+  };
 
-  // Count online faculty
-  const onlineCount = useMemo(
-    () => facultyList.filter((f) => f.status?.state !== STATUS_KEYS.OFF_CAMPUS).length,
-    [facultyList]
-  );
-
-  const toggleStar = (uid) => {
-    setStarredUids((prev) => {
+  const handleNotifyQueue = (fac) => {
+    setQueuedUids((prev) => {
       const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid);
-      else next.add(uid);
+      if (next.has(fac.uid)) {
+        next.delete(fac.uid);
+        Alert.alert('Queue Cancelled', `You removed auto-alert for ${fac.name}.`);
+      } else {
+        next.add(fac.uid);
+        Alert.alert(
+          'Auto-Alert Queued 🔔',
+          `You will be notified via institutional push notification the moment ${fac.name} changes status to Available.`
+        );
+      }
       return next;
     });
   };
 
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/(auth)/login');
-  };
-
-  const handlePingNow = (faculty) => {
-    Alert.alert(
-      `Ping ${faculty.name}`,
-      `Sending availability request to ${faculty.name}.\n\nCurrent status: ${BADGE[faculty.status?.state || 'off_campus']?.label}`,
-      [{ text: 'OK' }]
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.loadingRoot}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FAF8FE" />
+      </View>
     );
-  };
-
-  // Filter chips data
-  const filterChips = [
-    { id: 'ALL', label: 'All Faculty' },
-    { id: 'STARRED', label: 'Starred' },
-    ...DEPARTMENTS.map((d) => ({ id: d.id, label: d.id + ' Dept' })),
-  ];
+  }
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FAF8FE" />
 
-      {/* ── FIXED HEADER ─────────────────────────────────────────────── */}
-      <View style={styles.header}>
-        <View>
-          <View style={styles.brandRow}>
-            <Text style={styles.brandProf}>PROF-PING</Text>
-            <View style={styles.campusBadge}>
-              <Text style={styles.campusBadgeText}>CAMPUS</Text>
-            </View>
+      {/* ── 1. TOP HEADER BAR ─────────────────────────────────────────── */}
+      <View style={styles.topHeader}>
+        <View style={styles.topHeaderLeft}>
+          <View style={styles.brandContainer}>
+            <Image
+              source={require('../../assets/profping-logo.png')}
+              style={styles.headerLogoImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.brandSubtitle}>STUDENT DIRECTORY</Text>
           </View>
-          <Text style={styles.headerSub}>STUDENT DIRECTORY</Text>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <FontAwesome5 name="bell" size={15} color="#64748B" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <FontAwesome5 name="question-circle" size={15} color="#64748B" />
+
+        {/* Top Header Right Icons */}
+        <View style={styles.topHeaderRight}>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={() =>
+              Alert.alert('Notifications', 'No urgent broadcast alerts at this time.')
+            }
+          >
+            <FontAwesome5 name="bell" size={15} color="#334155" />
+            <View style={styles.unreadDot} />
           </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        style={styles.mainScroll}
+        contentContainerStyle={styles.mainScrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[0]}
       >
-        {/* ── STICKY: Search + Filters ──────────────────────────────── */}
-        <View style={styles.stickyTop}>
-          {/* Search */}
-          <View style={styles.searchBar}>
-            <FontAwesome5 name="search" size={14} color="#94A3B8" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by professor, cabin, or department..."
-              placeholderTextColor="#94A3B8"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <FontAwesome5 name="times-circle" solid size={15} color="#94A3B8" />
-              </TouchableOpacity>
-            )}
-          </View>
+        {/* ── 2. SEARCH BAR ───────────────────────────────────────────── */}
+        <View style={styles.searchContainer}>
+          <FontAwesome5 name="search" size={14} color="#94A3B8" style={styles.searchLens} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by professor, cabin, or dept..."
+            placeholderTextColor="#94A3B8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+          />
+          <TouchableOpacity
+            onPress={() =>
+              Alert.alert('Voice Search', 'Voice recognition listening for professor name...')
+            }
+          >
+            <FontAwesome5 name="microphone" size={14} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
 
-          {/* Filter chips */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsContent}>
-            {filterChips.map((chip) => {
-              const isActive = activeFilter === chip.id;
-              return (
-                <TouchableOpacity
-                  key={chip.id}
-                  style={[styles.chip, isActive && styles.chipActive]}
-                  onPress={() => setActiveFilter(chip.id)}
-                  activeOpacity={0.8}
+        {/* ── 3. FILTER CHIPS (HORIZONTAL SCROLL) ─────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {filterChips.map((chip) => {
+            const isActive = activeFilter === chip.id;
+            return (
+              <TouchableOpacity
+                key={chip.id}
+                style={[
+                  styles.filterChip,
+                  isActive && styles.filterChipActive,
+                ]}
+                onPress={() => setActiveFilter(chip.id)}
+                activeOpacity={0.8}
+              >
+                {chip.isStar && (
+                  <FontAwesome5
+                    name="star"
+                    solid={isActive}
+                    size={11}
+                    color={isActive ? '#FFFFFF' : '#F59E0B'}
+                    style={{ marginRight: 6 }}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    isActive && styles.filterChipTextActive,
+                  ]}
                 >
-                  {chip.id === 'STARRED' && (
-                    <FontAwesome5
-                      name="star"
-                      solid
-                      size={11}
-                      color={isActive ? '#ffffff' : '#F59E0B'}
-                      style={{ marginRight: 6 }}
-                    />
-                  )}
-                  <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                    {chip.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+                  {chip.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-        {/* ── Campus Activity Banner ─────────────────────────────────── */}
-        <View style={styles.activityBanner}>
-          <View style={styles.activityLeft}>
-            <View style={styles.greenPulse} />
-            <Text style={styles.activityText}>
-              Today's Campus Activity:{' '}
-              <Text style={styles.activityCount}>{onlineCount} Faculty Online</Text>
-              {' & Syncing'}
-            </Text>
-          </View>
-          <FontAwesome5 name="wifi" size={14} color="#16A34A" />
-        </View>
-
-        {/* ── STARRED FACULTY ─────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <FontAwesome5 name="star" solid size={11} color="#F59E0B" style={{ marginRight: 6 }} />
-              <Text style={styles.sectionTitle}>STARRED FACULTY</Text>
+        {/* ── 4. STARRED FACULTY SECTION ──────────────────────────────── */}
+        <View style={styles.starredSection}>
+          <View style={styles.starredHeaderRow}>
+            <View style={styles.starredLabelGroup}>
+              <FontAwesome5 name="star" size={11} color="#F59E0B" style={{ marginRight: 6 }} />
+              <Text style={styles.starredHeaderTitle}>STARRED FACULTY</Text>
             </View>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => setActiveFilter('STARRED')}>
               <Text style={styles.manageLink}>Manage ({starredUids.size})</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.starredScroll}>
-            {starredList.length === 0 && (
-              <View style={styles.noStarredRow}>
-                <Text style={styles.noStarredText}>Tap </Text>
-                <FontAwesome5 name="star" solid size={11} color="#F59E0B" />
-                <Text style={styles.noStarredText}> on a faculty card to star them</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.starredListContent}
+          >
+            {/* Dr. Mehta (Real Photo) */}
+            <TouchableOpacity
+              style={styles.starredCard}
+              onPress={() => {
+                const fac = facultyList.find((f) => f.uid === 'demo-faculty-ecs-01');
+                if (fac) setPingModalFaculty(fac);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.photoAvatarRing}>
+                <Image
+                  source={require('../../assets/faculty-anjali.jpg')}
+                  style={styles.starredPhoto}
+                />
+                <View style={[styles.avatarStatusBadge, { backgroundColor: '#16A34A' }]} />
               </View>
-            )}
-            {starredList.map((fac) => {
-              const av = getAvatarColor(fac.name);
-              const badge = BADGE[fac.status?.state || 'off_campus'];
-              return (
-                <TouchableOpacity
-                  key={fac.uid}
-                  style={styles.starredItem}
-                  onPress={() => setSelectedFaculty(fac)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.starredAvatar, { backgroundColor: av.bg }]}>
-                    <Text style={[styles.starredAvatarText, { color: av.text }]}>
-                      {getInitials(fac.name)}
-                    </Text>
-                    <View style={[styles.starredStatusDot, { backgroundColor: badge.dot }]} />
-                  </View>
-                  <Text style={styles.starredName} numberOfLines={1}>
-                    {fac.name.split(' ')[0]}
-                  </Text>
-                  <Text style={styles.starredDept} numberOfLines={1}>
-                    {fac.department} Dept
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity style={styles.addStarredBtn} onPress={() => setActiveFilter('ALL')}>
-              <FontAwesome5 name="plus" size={15} color="#94A3B8" />
+              <Text style={styles.starredCardName}>Dr. Mehta</Text>
+              <Text style={styles.starredCardDept}>ECS</Text>
+            </TouchableOpacity>
+
+            {/* Prof. Arjun */}
+            <TouchableOpacity
+              style={styles.starredCard}
+              onPress={() => {
+                const fac = facultyList.find((f) => f.uid === 'demo-faculty-ecs-02');
+                if (fac) setPingModalFaculty(fac);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.initialsAvatar}>
+                <Text style={styles.initialsText}>AK</Text>
+                <View style={[styles.avatarStatusBadge, { backgroundColor: '#F59E0B' }]} />
+              </View>
+              <Text style={styles.starredCardName}>Prof. Arjun</Text>
+              <Text style={styles.starredCardDept}>ECS</Text>
+            </TouchableOpacity>
+
+            {/* Prof. Patil */}
+            <TouchableOpacity
+              style={styles.starredCard}
+              onPress={() => {
+                const fac = facultyList.find((f) => f.uid === 'demo-faculty-cmpn-04');
+                if (fac) setPingModalFaculty(fac);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.initialsAvatar}>
+                <Text style={styles.initialsText}>RP</Text>
+                <View style={[styles.avatarStatusBadge, { backgroundColor: '#2563EB' }]} />
+              </View>
+              <Text style={styles.starredCardName}>Prof. Patil</Text>
+              <Text style={styles.starredCardDept}>CS</Text>
+            </TouchableOpacity>
+
+            {/* Dr. Sunita */}
+            <TouchableOpacity
+              style={styles.starredCard}
+              onPress={() => {
+                const fac = facultyList.find((f) => f.uid === 'demo-faculty-robotics-01');
+                if (fac) setPingModalFaculty(fac);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.initialsAvatar}>
+                <Text style={styles.initialsText}>SP</Text>
+                <View style={[styles.avatarStatusBadge, { backgroundColor: '#2563EB' }]} />
+              </View>
+              <Text style={styles.starredCardName}>Dr. Sunita</Text>
+              <Text style={styles.starredCardDept}>Robotics</Text>
+            </TouchableOpacity>
+
+            {/* Add New Dashed Circle */}
+            <TouchableOpacity
+              style={styles.starredCard}
+              onPress={() => setActiveFilter('ALL')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.addStarredCircle}>
+                <FontAwesome5 name="plus" size={14} color="#94A3B8" />
+              </View>
+              <Text style={styles.addStarredText}>Add New</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
 
-        {/* ── LIVE DIRECTORY ──────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              LIVE FACULTY DIRECTORY ({filteredList.length})
-            </Text>
-            <TouchableOpacity style={styles.filterBtn}>
-              <FontAwesome5 name="sliders-h" size={11} color="#475569" style={{ marginRight: 6 }} />
-              <Text style={styles.filterBtnText}>Filter</Text>
-            </TouchableOpacity>
+        {/* ── 5. LIVE FACULTY DIRECTORY HEADER ────────────────────────── */}
+        <View style={styles.directoryHeader}>
+          <View style={styles.directoryHeaderLeft}>
+            <Text style={styles.directoryHeading}>LIVE FACULTY DIRECTORY</Text>
+            <View style={styles.availableBadge}>
+              <Text style={styles.availableBadgeText}>32 Available</Text>
+            </View>
           </View>
 
-          {filteredList.length === 0 ? (
-            <View style={styles.emptyState}>
-              <FontAwesome5 name="search" size={32} color="#CBD5E1" style={{ marginBottom: 12 }} />
-              <Text style={styles.emptyTitle}>No Faculty Found</Text>
-              <Text style={styles.emptyDesc}>
-                Try a different search or filter.
-              </Text>
-              <TouchableOpacity
-                style={styles.resetBtn}
-                onPress={() => { setSearchQuery(''); setActiveFilter('ALL'); }}
-              >
-                <Text style={styles.resetBtnText}>Reset Filters</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            filteredList.map((faculty) => {
-              const badge = BADGE[faculty.status?.state || 'off_campus'];
-              const av = getAvatarColor(faculty.name);
-              const isStarred = starredUids.has(faculty.uid);
-              const msg = faculty.status?.message || '';
-
-              return (
-                <TouchableOpacity
-                  key={faculty.uid}
-                  style={styles.facultyCard}
-                  onPress={() => setSelectedFaculty(faculty)}
-                  activeOpacity={0.92}
-                >
-                  {/* Row 1: Avatar + Info + Badge */}
-                  <View style={styles.cardTop}>
-                    <View style={[styles.avatar, { backgroundColor: av.bg }]}>
-                      <Text style={[styles.avatarText, { color: av.text }]}>
-                        {getInitials(faculty.name)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.cardInfo}>
-                      <View style={styles.cardNameRow}>
-                        <View style={styles.cardNameInline}>
-                          <Text style={styles.cardName} numberOfLines={1}>
-                            {faculty.name}
-                          </Text>
-                          {isStarred && (
-                            <FontAwesome5 name="star" solid size={11} color="#F59E0B" style={{ marginLeft: 5 }} />
-                          )}
-                        </View>
-                        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
-                          <View style={[styles.badgeDot, { backgroundColor: badge.dot }]} />
-                          <Text style={[styles.badgeText, { color: badge.text }]}>
-                            {badge.label}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.cardDesig} numberOfLines={1}>
-                        {faculty.designation || 'Faculty'} • {faculty.department} Dept
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Row 2: Location + Ping */}
-                  <View style={styles.cardMid}>
-                    <View style={styles.locationRow}>
-                      <FontAwesome5 name="map-marker-alt" size={11} color="#64748B" style={{ marginRight: 6 }} />
-                      <Text style={styles.locationText} numberOfLines={1}>
-                        {msg || `${faculty.department} Dept Cabin`}
-                      </Text>
-                    </View>
-                    {faculty.status?.state === STATUS_KEYS.AVAILABLE && (
-                      <TouchableOpacity
-                        style={styles.pingBtn}
-                        onPress={() => handlePingNow(faculty)}
-                        activeOpacity={0.85}
-                      >
-                        <FontAwesome5 name="bolt" size={11} color="#ffffff" style={{ marginRight: 5 }} />
-                        <Text style={styles.pingBtnText}>Ping Now</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* Row 3: Status context line */}
-                  {faculty.status?.state === STATUS_KEYS.IN_LECTURE && msg ? (
-                    <View style={styles.contextChip}>
-                      <Text style={[styles.contextText, { color: '#BE185D' }]}>{msg}</Text>
-                    </View>
-                  ) : faculty.status?.state === STATUS_KEYS.BUSY && msg ? (
-                    <View style={styles.returningRow}>
-                      <FontAwesome5 name="clock" size={11} color="#B45309" style={{ marginRight: 5 }} />
-                      <Text style={styles.returningText}>{msg}</Text>
-                    </View>
-                  ) : null}
-
-                  {/* Star button */}
-                  <TouchableOpacity
-                    style={styles.starBtn}
-                    onPress={() => toggleStar(faculty.uid)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <FontAwesome5
-                      name="star"
-                      solid={isStarred}
-                      size={18}
-                      color={isStarred ? '#F59E0B' : '#CBD5E1'}
-                    />
-                  </TouchableOpacity>
-                </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.filterBtn}
+            onPress={() => {
+              Alert.alert(
+                'Department Filter',
+                'Select filter options',
+                [
+                  { text: 'All Faculty', onPress: () => setActiveFilter('ALL') },
+                  { text: 'ECS Dept', onPress: () => setActiveFilter('ECS') },
+                  { text: 'Comp Sci', onPress: () => setActiveFilter('CMPN') },
+                  { text: 'Cancel', style: 'cancel' },
+                ]
               );
-            })
-          )}
+            }}
+          >
+            <FontAwesome5 name="sliders-h" size={11} color="#475569" style={{ marginRight: 5 }} />
+            <Text style={styles.filterBtnText}>Filter</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* ── 6. FACULTY CARDS ────────────────────────────────────────── */}
+        <View style={styles.facultyCardsList}>
+          {filteredList.map((fac) => {
+            const state = fac.status?.state || STATUS_KEYS.AVAILABLE;
+            const badge = BADGE_MAP[state] || BADGE_MAP.available;
+            const isQueued = queuedUids.has(fac.uid);
+
+            return (
+              <View key={fac.uid} style={styles.facultyCard}>
+                {/* Header Row: Avatar + Name/Role + Status Badge */}
+                <View style={styles.cardHeaderRow}>
+                  {/* Avatar */}
+                  <View style={styles.cardAvatarWrapper}>
+                    {fac.photo ? (
+                      <Image
+                        source={require('../../assets/faculty-anjali.jpg')}
+                        style={styles.cardAvatarPhoto}
+                      />
+                    ) : (
+                      <View style={styles.cardAvatarPlaceholder}>
+                        <Text style={styles.cardAvatarPlaceholderText}>
+                          {fac.name
+                            .split(' ')
+                            .map((p) => p[0])
+                            .slice(0, 2)
+                            .join('')}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={[styles.cardStatusDot, { backgroundColor: badge.dotColor }]} />
+                  </View>
+
+                  {/* Name & Role */}
+                  <View style={styles.cardInfoCol}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.facultyNameText}>{fac.name}</Text>
+                      {fac.isVerified && (
+                        <MaterialCommunityIcons
+                          name="check-decagram"
+                          size={15}
+                          color="#4326B6"
+                          style={{ marginLeft: 5 }}
+                        />
+                      )}
+                    </View>
+                    <Text style={styles.facultyRoleText}>
+                      {fac.designation || 'Faculty'}
+                    </Text>
+                  </View>
+
+                  {/* Status Badge */}
+                  <View style={[styles.statusTag, { backgroundColor: badge.badgeBg }]}>
+                    <FontAwesome5
+                      name={badge.icon}
+                      size={10}
+                      color={badge.badgeText}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={[styles.statusTagText, { color: badge.badgeText }]}>
+                      {badge.label}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Status Message Line */}
+                {fac.status?.message ? (
+                  <Text
+                    style={[
+                      styles.cardMessageText,
+                      state === STATUS_KEYS.AVAILABLE && styles.cardMessageItalic,
+                    ]}
+                  >
+                    {state === STATUS_KEYS.AVAILABLE
+                      ? `"${fac.status.message}"`
+                      : fac.status.message}
+                  </Text>
+                ) : null}
+
+                {/* Footer Action Row */}
+                <View style={styles.cardFooterRow}>
+                  {/* Left Location Info */}
+                  <View style={styles.cardLocationLeft}>
+                    <FontAwesome5
+                      name={fac.lectureRoom ? 'graduation-cap' : 'book-open'}
+                      size={11}
+                      color={fac.lectureRoom ? '#2563EB' : '#4326B6'}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text
+                      style={[
+                        styles.cardLocationText,
+                        fac.lectureRoom && { color: '#2563EB' },
+                      ]}
+                    >
+                      {fac.lectureRoom || fac.cabin || `${fac.department} Dept Cabin`}
+                    </Text>
+                  </View>
+
+                  {/* Right Button */}
+                  {state === STATUS_KEYS.AVAILABLE ? (
+                    <TouchableOpacity
+                      style={styles.pingFacultyBtn}
+                      onPress={() => setPingModalFaculty(fac)}
+                      activeOpacity={0.88}
+                    >
+                      <FontAwesome5
+                        name="bell"
+                        size={11}
+                        color="#FFFFFF"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.pingFacultyBtnText}>Ping Faculty</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[
+                        styles.notifyBtn,
+                        isQueued && styles.notifyBtnActive,
+                      ]}
+                      onPress={() => handleNotifyQueue(fac)}
+                      activeOpacity={0.88}
+                    >
+                      <FontAwesome5
+                        name="bell"
+                        size={11}
+                        color={isQueued ? '#FFFFFF' : '#4326B6'}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text
+                        style={[
+                          styles.notifyBtnText,
+                          isQueued && { color: '#FFFFFF' },
+                        ]}
+                      >
+                        {isQueued ? 'Alert Set ✔' : 'Notify When Free'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={{ height: 110 }} />
       </ScrollView>
 
-      {/* ── BOTTOM NAV ─────────────────────────────────────────────────── */}
-      <View style={styles.bottomNav}>
-        {[
-          { id: 'home', iconName: 'home', label: 'Home' },
-          { id: 'maps', iconName: 'map-marked-alt', label: 'Maps' },
-          { id: 'favorites', iconName: 'star', solid: true, label: 'Favorites' },
-          { id: 'profile', iconName: 'user-alt', label: 'Profile' },
-        ].map((tab) => {
-          const isActive = tab.id === 'favorites' ? activeFilter === 'STARRED' : activeTab === tab.id;
-          return (
-            <TouchableOpacity
-              key={tab.id}
-              style={styles.navTab}
-              onPress={() => {
-                if (tab.id === 'favorites') setActiveFilter('STARRED');
-                else if (tab.id === 'profile') handleLogout();
-                else setActiveTab(tab.id);
-              }}
-              activeOpacity={0.8}
-            >
-              <FontAwesome5
-                name={tab.iconName}
-                solid={tab.solid || isActive}
-                size={18}
-                color={isActive ? BLUE : '#94A3B8'}
-                style={{ marginBottom: 4 }}
-              />
-              <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* ── FACULTY DETAIL MODAL ─────────────────────────────────────── */}
-      {selectedFaculty && (() => {
-        const fac = selectedFaculty;
-        const badge = BADGE[fac.status?.state || 'off_campus'];
-        const av = getAvatarColor(fac.name);
-        const isStarred = starredUids.has(fac.uid);
-        return (
-          <Modal
-            visible
-            transparent
-            animationType="slide"
-            onRequestClose={() => setSelectedFaculty(null)}
-          >
-            <View style={styles.modalBackdrop}>
-              <View style={styles.modalSheet}>
-                {/* Handle */}
-                <View style={styles.modalHandle} />
-
-                {/* Avatar + Name */}
-                <View style={styles.modalTop}>
-                  <View style={[styles.modalAvatar, { backgroundColor: av.bg }]}>
-                    <Text style={[styles.modalAvatarText, { color: av.text }]}>
-                      {getInitials(fac.name)}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalName}>{fac.name}</Text>
-                    <Text style={styles.modalDesig}>
-                      {fac.designation || 'Faculty'} • {fac.department}
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => toggleStar(fac.uid)}>
-                    <FontAwesome5
-                      name="star"
-                      solid={isStarred}
-                      size={24}
-                      color={isStarred ? '#F59E0B' : '#CBD5E1'}
-                    />
-                  </TouchableOpacity>
+      {/* ── PING MODAL ──────────────────────────────────────────────── */}
+      {pingModalFaculty && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPingModalFaculty(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.pingSheetCard}>
+              <View style={styles.pingSheetHeader}>
+                <View style={styles.pingShieldIcon}>
+                  <FontAwesome5 name="bell" size={18} color="#FFFFFF" />
                 </View>
-
-                {/* Status Block */}
-                <View style={[styles.modalStatusBox, { backgroundColor: badge.bg }]}>
-                  <View style={[styles.badgeDot, { backgroundColor: badge.dot, marginRight: 8 }]} />
-                  <View>
-                    <Text style={[styles.modalStatusLabel, { color: badge.text }]}>{badge.label}</Text>
-                    {fac.status?.message ? (
-                      <Text style={styles.modalStatusMsg}>"{fac.status.message}"</Text>
-                    ) : null}
-                  </View>
-                </View>
-
-                {/* Last updated */}
-                <Text style={styles.modalUpdated}>
-                  Last updated:{' '}
-                  {fac.status?.updatedAt
-                    ? new Date(fac.status.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    : '—'}
+                <Text style={styles.pingSheetTitle}>Ping {pingModalFaculty.name}</Text>
+                <Text style={styles.pingSheetSubtitle}>
+                  Location: {pingModalFaculty.cabin || 'Hall No. 301 • Table 1'}
                 </Text>
-
-                {/* Actions */}
-                {fac.status?.state === STATUS_KEYS.AVAILABLE && (
-                  <TouchableOpacity
-                    style={styles.modalPingBtn}
-                    onPress={() => { setSelectedFaculty(null); handlePingNow(fac); }}
-                  >
-                    <FontAwesome5 name="bolt" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-                    <Text style={styles.modalPingText}>Ping Now</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedFaculty(null)}>
-                  <Text style={styles.modalCloseBtnText}>Close</Text>
-                </TouchableOpacity>
               </View>
+
+              {pingSuccess ? (
+                <View style={styles.pingSuccessBox}>
+                  <FontAwesome5 name="check-circle" size={32} color="#15803D" />
+                  <Text style={styles.pingSuccessText}>Ping Sent Successfully!</Text>
+                  <Text style={styles.pingSuccessSub}>
+                    {pingModalFaculty.name} has been notified on their desktop and phone broadcast.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.reasonLabel}>Select reason for visit:</Text>
+                  {[
+                    'Doubt in Assignment / Lab',
+                    'Project Guidance & Sign-off',
+                    'Recommendation Letter / Inquiry',
+                    'Quick 2-minute query',
+                  ].map((r) => (
+                    <TouchableOpacity
+                      key={r}
+                      style={[
+                        styles.reasonChip,
+                        pingReason === r && styles.reasonChipSelected,
+                      ]}
+                      onPress={() => setPingReason(r)}
+                    >
+                      <FontAwesome5
+                        name={pingReason === r ? 'dot-circle' : 'circle'}
+                        size={13}
+                        color={pingReason === r ? '#4326B6' : '#94A3B8'}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text
+                        style={[
+                          styles.reasonText,
+                          pingReason === r && styles.reasonTextSelected,
+                        ]}
+                      >
+                        {r}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+
+                  <View style={styles.pingActionRow}>
+                    <TouchableOpacity
+                      style={styles.pingCancelBtn}
+                      onPress={() => setPingModalFaculty(null)}
+                    >
+                      <Text style={styles.pingCancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.pingConfirmBtn}
+                      onPress={handlePingSubmit}
+                    >
+                      <Text style={styles.pingConfirmBtnText}>Send Ping 🔔</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
-          </Modal>
-        );
-      })()}
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
 
-// ── STYLES ─────────────────────────────────────────────────────────────────
-const NAVY = '#0F172A';
-const BLUE = '#2563EB';
-const GRAY = '#6B7280';
-const LIGHT_BG = '#F8FAFC';
-const BORDER = '#E2E8F0';
-
+// ── EXACT CAMPUS CLARITY SYSTEM STYLES ───────────────────────────────────────
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: LIGHT_BG },
+  root: {
+    flex: 1,
+    backgroundColor: '#FAF8FE', // Whisper Violet Canvas
+  },
+  loadingRoot: {
+    flex: 1,
+    backgroundColor: '#FAF8FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
-  // Header
-  header: {
-    backgroundColor: '#ffffff',
+  // ── 1. Top Header ──────────────────────────────────────────────────────────
+  topHeader: {
+    backgroundColor: '#FAF8FE',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 48,
+    paddingTop: Platform.OS === 'ios' ? 62 : 46,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    paddingHorizontal: 20,
   },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandProf: { fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: -0.3 },
-  campusBadge: {
-    backgroundColor: '#DBEAFE',
-    paddingVertical: 2,
-    paddingHorizontal: 7,
-    borderRadius: 4,
+  topHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  campusBadgeText: { fontSize: 10, fontWeight: '800', color: BLUE, letterSpacing: 0.5 },
-  headerSub: { fontSize: 11, color: GRAY, fontWeight: '600', marginTop: 2, letterSpacing: 0.5 },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  headerIconBtn: {
-    width: 34, height: 34, borderRadius: 17,
+  brandContainer: {
+    justifyContent: 'center',
+  },
+  headerLogoImage: {
+    width: 128,
+    height: 28,
+  },
+  brandSubtitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 9,
+    color: '#64748B',
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  topHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444',
+  },
+
+  mainScroll: {
+    flex: 1,
+  },
+  mainScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 110,
+  },
+
+  // ── 2. Search Bar ──────────────────────────────────────────────────────────
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  headerIcon: { fontSize: 15 },
-
-  // Scroll
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
-
-  // Sticky top (search + chips)
-  stickyTop: { backgroundColor: LIGHT_BG, paddingTop: 12, paddingBottom: 4 },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
+    borderRadius: 9999,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 50,
-    marginHorizontal: 16,
-    paddingHorizontal: 14,
-    height: 44,
-    gap: 10,
+    borderColor: '#E2E8F0',
+    height: 46,
+    paddingHorizontal: 16,
+    marginBottom: 14,
   },
-  searchInput: { flex: 1, fontSize: 13, color: NAVY },
-  chipsScroll: { marginTop: 10 },
-  chipsContent: { paddingHorizontal: 16, gap: 8 },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6, paddingHorizontal: 14,
-    borderRadius: 50, borderWidth: 1.5,
-    borderColor: BORDER, backgroundColor: '#ffffff',
+  searchLens: {
+    marginRight: 10,
   },
-  chipActive: { backgroundColor: BLUE, borderColor: BLUE },
-  chipText: { fontSize: 12, fontWeight: '600', color: GRAY },
-  chipTextActive: { color: '#ffffff' },
+  searchInput: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13.5,
+    color: '#1A191F',
+    height: '100%',
+  },
 
-  // Activity banner
-  activityBanner: {
+  // ── 3. Filter Scroll ───────────────────────────────────────────────────────
+  filterScroll: {
+    marginBottom: 16,
+  },
+  filterScrollContent: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#ECFDF5',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
-    borderRadius: 10,
-    marginHorizontal: 16,
-    marginTop: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    borderColor: '#E2E8F0',
+    borderRadius: 9999,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  activityLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  greenPulse: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22C55E' },
-  activityText: { fontSize: 12, color: '#065F46', flex: 1 },
-  activityCount: { fontWeight: '700' },
+  filterChipActive: {
+    backgroundColor: '#4326B6',
+    borderColor: '#4326B6',
+  },
+  filterChipText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 13,
+    color: '#334155',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
 
-  // Sections
-  section: { paddingHorizontal: 16, marginTop: 22 },
-  sectionHeader: {
+  // ── 4. Starred Faculty Section ─────────────────────────────────────────────
+  starredSection: {
+    marginBottom: 20,
+  },
+  starredHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: {
-    fontSize: 12, fontWeight: '800', color: NAVY,
-    letterSpacing: 0.6, textTransform: 'uppercase',
+  starredLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  manageLink: { fontSize: 12, fontWeight: '600', color: BLUE },
+  starredHeaderTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 11,
+    color: '#4B4757',
+    letterSpacing: 0.8,
+  },
+  manageLink: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 12,
+    color: '#4326B6',
+  },
+  starredListContent: {
+    gap: 16,
+    paddingRight: 8,
+  },
+  starredCard: {
+    alignItems: 'center',
+    width: 64,
+  },
+  photoAvatarRing: {
+    position: 'relative',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: '#4326B6',
+    padding: 1.5,
+    marginBottom: 6,
+  },
+  starredPhoto: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
+  },
+  initialsAvatar: {
+    position: 'relative',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  initialsText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 14,
+    color: '#334155',
+  },
+  avatarStatusBadge: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  addStarredCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  starredCardName: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 11.5,
+    color: '#1A191F',
+    textAlign: 'center',
+  },
+  starredCardDept: {
+    fontFamily: 'Inter_500Medium',
+    fontWeight: '500',
+    fontSize: 10,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  addStarredText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 10.5,
+    color: '#64748B',
+    textAlign: 'center',
+  },
+
+  // ── 5. Live Faculty Directory Header ───────────────────────────────────────
+  directoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  directoryHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  directoryHeading: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 12,
+    color: '#1A191F',
+    letterSpacing: 0.4,
+  },
+  availableBadge: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 9999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  availableBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 11,
+    color: '#475569',
+  },
   filterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 5, paddingHorizontal: 10,
-    borderRadius: 6,
   },
-  filterBtnText: { fontSize: 12, fontWeight: '600', color: NAVY },
-
-  // Starred Faculty
-  starredScroll: { paddingRight: 8, gap: 12 },
-  starredItem: { alignItems: 'center', width: 64 },
-  starredAvatar: {
-    width: 54, height: 54, borderRadius: 27,
-    alignItems: 'center', justifyContent: 'center',
-    position: 'relative',
-  },
-  starredAvatarText: { fontSize: 18, fontWeight: '800' },
-  starredStatusDot: {
-    width: 12, height: 12, borderRadius: 6,
-    position: 'absolute', bottom: 2, right: 2,
-    borderWidth: 2, borderColor: '#ffffff',
-  },
-  starredName: {
-    fontSize: 11, fontWeight: '600', color: NAVY,
-    marginTop: 5, textAlign: 'center',
-  },
-  starredDept: { fontSize: 10, color: GRAY, textAlign: 'center', marginTop: 1 },
-  noStarredRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
-  noStarredText: { fontSize: 12, color: GRAY, fontStyle: 'italic' },
-  addStarredBtn: {
-    width: 54, height: 54, borderRadius: 27,
-    borderWidth: 2, borderColor: BORDER,
-    borderStyle: 'dashed',
-    alignItems: 'center', justifyContent: 'center',
+  filterBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: '#475569',
   },
 
-  // Faculty cards
+  // ── 6. Faculty Cards List ──────────────────────────────────────────────────
+  facultyCardsList: {
+    gap: 14,
+  },
   facultyCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 14,
-    marginBottom: 10,
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  cardTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  avatar: {
-    width: 46, height: 46, borderRadius: 23,
-    alignItems: 'center', justifyContent: 'center',
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  cardAvatarWrapper: {
+    position: 'relative',
     marginRight: 12,
   },
-  avatarText: { fontSize: 16, fontWeight: '800' },
-  cardInfo: { flex: 1 },
-  cardNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-    marginBottom: 3,
-    paddingRight: 26,
+  cardAvatarPhoto: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
-  cardNameInline: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 },
-  cardName: { fontSize: 14, fontWeight: '700', color: NAVY },
-  cardDesig: { fontSize: 11, color: GRAY },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 3, paddingHorizontal: 8,
-    borderRadius: 50, gap: 4,
-  },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-
-  cardMid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  locationRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-  locationText: { fontSize: 12, color: GRAY, flex: 1 },
-  pingBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: BLUE, paddingVertical: 5, paddingHorizontal: 12,
-    borderRadius: 50,
-  },
-  pingBtnText: { fontSize: 11, fontWeight: '700', color: '#ffffff' },
-
-  contextChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#FCE7F3',
-    paddingVertical: 3, paddingHorizontal: 10,
-    borderRadius: 50, marginTop: 8,
-  },
-  contextText: { fontSize: 11, fontWeight: '600' },
-  returningRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  returningText: { fontSize: 11, color: '#D97706', fontWeight: '500' },
-
-  starBtn: { position: 'absolute', top: 14, right: 14, padding: 4 },
-
-  // Empty state
-  emptyState: { alignItems: 'center', paddingVertical: 48 },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: NAVY, marginBottom: 6 },
-  emptyDesc: { fontSize: 13, color: GRAY, textAlign: 'center', marginBottom: 16 },
-  resetBtn: {
-    backgroundColor: BLUE, paddingVertical: 8, paddingHorizontal: 20,
-    borderRadius: 50,
-  },
-  resetBtnText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
-
-  // Bottom Nav
-  bottomNav: {
-    flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-    paddingBottom: 20,
-    paddingTop: 8,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  navTab: { flex: 1, alignItems: 'center', paddingVertical: 4 },
-  navLabel: { fontSize: 10, color: GRAY, fontWeight: '500' },
-  navLabelActive: { color: BLUE, fontWeight: '700' },
-
-  // Modal
-  modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 40,
-  },
-  modalHandle: {
-    width: 36, height: 4, borderRadius: 2,
-    backgroundColor: '#E2E8F0',
-    alignSelf: 'center', marginBottom: 20,
-  },
-  modalTop: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
-  modalAvatar: {
-    width: 54, height: 54, borderRadius: 27,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  modalAvatarText: { fontSize: 20, fontWeight: '800' },
-  modalName: { fontSize: 17, fontWeight: '800', color: NAVY },
-  modalDesig: { fontSize: 12, color: GRAY, marginTop: 2 },
-  modalStatusBox: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    borderRadius: 12, padding: 14, marginBottom: 12,
-  },
-  modalStatusLabel: { fontSize: 14, fontWeight: '700' },
-  modalStatusMsg: { fontSize: 12, color: GRAY, marginTop: 2, fontStyle: 'italic' },
-  modalUpdated: { fontSize: 12, color: GRAY, marginBottom: 20 },
-  modalPingBtn: {
-    flexDirection: 'row',
+  cardAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: BLUE, borderRadius: 50,
-    height: 48,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  cardAvatarPlaceholderText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#334155',
+  },
+  cardStatusDot: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  cardInfoCol: {
+    flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  facultyNameText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 15.5,
+    color: '#1A191F',
+  },
+  facultyRoleText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  statusTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 9999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginLeft: 6,
+  },
+  statusTagText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 11,
+  },
+  cardMessageText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12.5,
+    color: '#334155',
+    lineHeight: 18,
+    marginVertical: 10,
+  },
+  cardMessageItalic: {
+    fontStyle: 'italic',
+    color: '#475569',
+  },
+  cardFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  cardLocationLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  cardLocationText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11.5,
+    color: '#334155',
+  },
+  pingFacultyBtn: {
+    backgroundColor: '#4326B6',
+    borderRadius: 9999,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  pingFacultyBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  notifyBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#4326B6',
+    borderRadius: 9999,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notifyBtnActive: {
+    backgroundColor: '#4326B6',
+  },
+  notifyBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 12,
+    color: '#4326B6',
+  },
+
+  // ── MODAL BACKDROP & PING MODAL ────────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  pingSheetCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    width: '100%',
+    maxWidth: 380,
+    padding: 22,
+    shadowColor: '#1A191F',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  pingSheetHeader: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  pingShieldIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#4326B6',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
   },
-  modalPingText: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
-  modalCloseBtn: {
-    backgroundColor: '#F1F5F9', borderRadius: 50,
-    height: 44, alignItems: 'center', justifyContent: 'center',
+  pingSheetTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 17,
+    color: '#1A191F',
+    textAlign: 'center',
   },
-  modalCloseBtnText: { fontSize: 14, fontWeight: '600', color: NAVY },
+  pingSheetSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  reasonLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: '#334155',
+    marginBottom: 10,
+  },
+  reasonChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  reasonChipSelected: {
+    borderColor: '#4326B6',
+    backgroundColor: '#F5F3FF',
+  },
+  reasonText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.5,
+    color: '#334155',
+  },
+  reasonTextSelected: {
+    fontFamily: 'Inter_700Bold',
+    color: '#4326B6',
+  },
+  pingActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  pingCancelBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pingCancelBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    color: '#64748B',
+  },
+  pingConfirmBtn: {
+    flex: 1.5,
+    backgroundColor: '#4326B6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pingConfirmBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  pingSuccessBox: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  pingSuccessText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    color: '#15803D',
+    marginTop: 12,
+  },
+  pingSuccessSub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
 });

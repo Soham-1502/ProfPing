@@ -10,6 +10,73 @@ import { STATUS_KEYS, STATUS_CONFIG } from '@profping/shared';
 
 const MOCK_DIRECTORY = [
   {
+    uid: 'demo-faculty-ecs-01',
+    name: 'Dr. Anjali Mehta',
+    department: 'ECS',
+    designation: 'Associate Professor • ECS Dept',
+    cabin: 'Hall No. 301 • Table 1',
+    email: 'anjali.mehta@sfit.ac.in',
+    isVerified: true,
+    photo: 'faculty-anjali.jpg',
+    lastActive: '2 mins ago',
+    deskNum: 'DESK 01',
+    status: {
+      state: STATUS_KEYS.AVAILABLE,
+      message: 'Office hours open. Project review & guidance consult...',
+      updatedAt: Date.now() - 1000 * 60 * 2,
+    },
+  },
+  {
+    uid: 'demo-faculty-ecs-02',
+    name: 'Mr. Arjun Kulkarni',
+    shortName: 'Prof. Arjun',
+    department: 'ECS',
+    designation: 'Assistant Professor • ECS Dept',
+    cabin: 'Hall No. 301 • Table 2',
+    email: 'faculty.arjun@sfit.ac.in',
+    deskNum: 'DESK 02',
+    deskStatus: 'Viva Duty',
+    status: {
+      state: STATUS_KEYS.BUSY,
+      message: 'Conducting final year viva • Expected free at 2:00 PM',
+      updatedAt: Date.now() - 1000 * 60 * 14,
+    },
+    queueCount: 5,
+  },
+  {
+    uid: 'demo-faculty-cmpn-04',
+    name: 'Prof. Rohan Patil',
+    shortName: 'Prof. Patil',
+    department: 'CMPN',
+    deptTag: 'Comp Sci',
+    designation: 'Associate Professor • Comp Sci',
+    cabin: 'Hall No. 204 • Table 4',
+    lectureRoom: 'Lecture Room 302',
+    deskNum: 'DESK 03',
+    deskStatus: 'Room 302',
+    email: 'faculty.rohan@sfit.ac.in',
+    status: {
+      state: STATUS_KEYS.IN_LECTURE,
+      message: 'CS304: Distributed Operating Systems (until 12:30 PM)',
+      updatedAt: Date.now() - 1000 * 60 * 25,
+    },
+  },
+  {
+    uid: 'demo-faculty-robotics-01',
+    name: 'Dr. Sunita Sharma',
+    shortName: 'Dr. Sunita',
+    department: 'Robotics',
+    deptTag: 'Robotics',
+    designation: 'Professor • Robotics Dept',
+    cabin: 'Hall No. 301 • Table 3',
+    email: 'faculty.sunita@sfit.ac.in',
+    status: {
+      state: STATUS_KEYS.IN_LECTURE,
+      message: 'Robotics & Automation Lab (Room 402)',
+      updatedAt: Date.now() - 1000 * 60 * 35,
+    },
+  },
+  {
     uid: 'demo-faculty-cmpn-01',
     name: 'Prof. Snehal Kulkarni',
     department: 'CMPN',
@@ -113,22 +180,30 @@ export function subscribeToLiveDirectory(onUpdate) {
       let statusCache = {};
 
       const computeJoinedList = () => {
-        const list = Object.keys(facultyCache).map((uid) => {
-          const fac = facultyCache[uid] || {};
-          const st = statusCache[uid] || {
-            state: STATUS_KEYS.OFF_CAMPUS,
-            message: STATUS_CONFIG[STATUS_KEYS.OFF_CAMPUS].defaultMessage,
+        // Base mapping with institutional faculty members
+        const facultyMap = {};
+        MOCK_DIRECTORY.forEach((item) => {
+          facultyMap[item.uid] = { ...item };
+        });
+
+        // Overlay with Firebase faculty entries if any exist
+        Object.keys(facultyCache).forEach((uid) => {
+          facultyMap[uid] = { ...(facultyMap[uid] || {}), ...facultyCache[uid], uid };
+        });
+
+        // Map live status from Firebase statusCache
+        const list = Object.values(facultyMap).map((fac) => {
+          const liveStatus = statusCache[fac.uid] || fac.status || {
+            state: STATUS_KEYS.AVAILABLE,
+            message: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].defaultMessage,
             updatedAt: Date.now(),
           };
           return {
-            uid,
-            name: fac.name || 'Faculty Member',
-            department: fac.department || 'CMPN',
-            designation: fac.designation || 'Faculty',
-            email: fac.email || '',
-            status: st,
+            ...fac,
+            status: liveStatus,
           };
         });
+
         onUpdate(list);
       };
 

@@ -17,12 +17,14 @@ function NavigationRouter() {
 
     if (!user) {
       if (!inAuthGroup) {
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/onboarding');
       }
     } else {
       if (inAuthGroup || segments[0] === undefined) {
         if (role === 'faculty') {
           router.replace('/(faculty)');
+        } else if (role === 'hod') {
+          router.replace('/(hod)');
         } else {
           router.replace('/(student)');
         }
@@ -32,8 +34,8 @@ function NavigationRouter() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#090d16', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+      <View style={{ flex: 1, backgroundColor: '#FAF8FE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#492FB1" />
       </View>
     );
   }
@@ -41,20 +43,36 @@ function NavigationRouter() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: '#0f172a' },
-        headerTintColor: '#ffffff',
+        headerStyle: { backgroundColor: '#FAF8FE' },
+        headerTintColor: '#1A191F',
         headerTitleStyle: { fontWeight: 'bold' },
+        headerShown: false,
       }}
     >
+      <Stack.Screen name="(auth)/onboarding" options={{ title: 'ProfPing Onboarding', headerShown: false }} />
       <Stack.Screen name="(auth)/login" options={{ title: 'ProfPing Login', headerShown: false }} />
-      <Stack.Screen name="(faculty)/index" options={{ title: 'Faculty Broadcast', headerShown: false }} />
-      <Stack.Screen name="(student)/index" options={{ title: 'Faculty Directory', headerShown: false }} />
+      <Stack.Screen name="(faculty)" options={{ headerShown: false }} />
+      <Stack.Screen name="(hod)" options={{ headerShown: false }} />
+      <Stack.Screen name="(student)" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ title: 'ProfPing', headerShown: false }} />
     </Stack>
   );
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    // Disable translucent development overlay gear icon
+    try {
+      const { requireOptionalNativeModule } = require('expo');
+      const DevMenuPreferences = requireOptionalNativeModule('DevMenuPreferences');
+      if (DevMenuPreferences?.setPreferencesAsync) {
+        DevMenuPreferences.setPreferencesAsync({
+          showFloatingActionButton: false,
+        });
+      }
+    } catch (_) {}
+  }, []);
+
   return (
     <SafeAreaProvider>
       <AuthProvider>

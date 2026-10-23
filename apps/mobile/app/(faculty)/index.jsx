@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,141 +12,191 @@ import {
   Image,
   Switch,
   Modal,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { FontAwesome5 } from '@expo/vector-icons';
+import { FontAwesome5, Ionicons } from '@expo/vector-icons';
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from '@expo-google-fonts/inter';
 import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_KEYS } from '@profping/shared';
-import { broadcastStatus, getFacultyStatus } from '../../src/services/statusService';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import FacultyProfileView from './FacultyProfileView';
 
-// ── 6 Instant Status Card Configs (Matching Reference Screenshot) ─────────
+// ── 4 Core Status Card Configs (Campus Clarity System) ─────────────────────
 const STATUS_CARDS = [
   {
     id: 'available',
     backendState: STATUS_KEYS.AVAILABLE,
     label: 'Available',
     subtitle: 'In office / Walk-ins OK',
-    color: '#059669', // Emerald Green
     icon: 'check-circle',
+    activeBg: '#15803D',
+    activeText: '#FFFFFF',
+    inactiveBg: '#DCFCE7',
+    inactiveBorder: '#86EFAC',
+    inactiveText: '#14532D',
+    inactiveSub: '#166534',
+    iconColor: '#15803D',
+    bannerBg: '#DCFCE7',
+    bannerBorder: '#86EFAC',
+    bannerText: '#14532D',
   },
   {
     id: 'busy',
     backendState: STATUS_KEYS.BUSY,
     label: 'Busy',
     subtitle: 'Grading / Meeting',
-    color: '#D97706', // Warm Amber
     icon: 'clock',
+    activeBg: '#D97706',
+    activeText: '#FFFFFF',
+    inactiveBg: '#FEF3C7',
+    inactiveBorder: '#FDE68A',
+    inactiveText: '#78350F',
+    inactiveSub: '#92400E',
+    iconColor: '#D97706',
+    bannerBg: '#FEF3C7',
+    bannerBorder: '#FDE68A',
+    bannerText: '#78350F',
   },
   {
-    id: 'temporarily_out',
-    backendState: STATUS_KEYS.BUSY,
-    label: 'Temporarily Out',
-    subtitle: 'Step out 15m',
-    color: '#0284C7', // Ocean Blue
-    icon: 'pause-circle',
-  },
-  {
-    id: 'unavailable',
+    id: 'in_lecture',
     backendState: STATUS_KEYS.IN_LECTURE,
-    label: 'Unavailable',
+    label: 'In Lecture',
     subtitle: 'In Lecture / Lab',
-    color: '#DC2626', // Crimson Red
-    icon: 'minus-circle',
+    icon: 'graduation-cap',
+    activeBg: '#2563EB',
+    activeText: '#FFFFFF',
+    inactiveBg: '#DBEAFE',
+    inactiveBorder: '#BFDBFE',
+    inactiveText: '#1E40AF',
+    inactiveSub: '#1D4ED8',
+    iconColor: '#2563EB',
+    bannerBg: '#DBEAFE',
+    bannerBorder: '#BFDBFE',
+    bannerText: '#1E40AF',
   },
   {
-    id: 'absent',
+    id: 'off_campus',
     backendState: STATUS_KEYS.OFF_CAMPUS,
-    label: 'Absent',
-    subtitle: 'Off-campus today',
-    color: '#1E293B', // Deep Slate
-    icon: 'power-off',
+    label: 'Off Campus',
+    subtitle: 'Not on campus today',
+    icon: 'door-open',
+    activeBg: '#DC2626',
+    activeText: '#FFFFFF',
+    inactiveBg: '#FEE2E2',
+    inactiveBorder: '#FECACA',
+    inactiveText: '#991B1B',
+    inactiveSub: '#B91C1C',
+    iconColor: '#DC2626',
+    bannerBg: '#FEE2E2',
+    bannerBorder: '#FECACA',
+    bannerText: '#991B1B',
   },
 ];
 
-// Revert preset durations in minutes
-const TIME_PRESETS = [
-  { id: '15m', label: '15m', minutes: 15 },
-  { id: '30m', label: '30m', minutes: 30 },
-  { id: '1h', label: '1h', minutes: 60 },
-  { id: 'custom', label: 'Custom', minutes: 120 },
-];
+import { useFaculty, TIME_PRESETS } from '../../src/context/FacultyContext';
 
-export default function FacultyHomeScreen() {
+export default function FacultyHomeScreen({ initialTab = 'home' }) {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
+
   const { user, department, logout } = useAuth();
   const router = useRouter();
 
-  // State management
-  const [selectedStatusId, setSelectedStatusId] = useState('available');
-  const [customNote, setCustomNote] = useState('Conducting viva in Lab 2');
-  const [lastUpdatedText, setLastUpdatedText] = useState('2m ago');
-  const [lastUpdatedTime, setLastUpdatedTime] = useState(Date.now() - 120000);
+  // Persistent Faculty Broadcaster Context
+  const {
+    selectedStatusId,
+    setSelectedStatusId,
+    customNote,
+    setCustomNote,
+    lastUpdatedText,
+    broadcastStatusToFirebase,
+    autoResetEnabled,
+    setAutoResetEnabled,
+    selectedPreset,
+    setSelectedPreset,
+    customRevertDate,
+    setCustomRevertDate,
+    revertTime,
+  } = useFaculty();
+
+  // Local transient states
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastBannerSuccess, setBroadcastBannerSuccess] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const resetTimeoutRef = useRef(null);
 
-  // Auto-reset state
-  const [autoResetEnabled, setAutoResetEnabled] = useState(true);
-  const [selectedPreset, setSelectedPreset] = useState('1h');
-  const [revertTime, setRevertTime] = useState('4:00 PM');
-
-  // Custom status modal
+  // Custom status modal & history modal
   const [customStatusModalVisible, setCustomStatusModalVisible] = useState(false);
   const [customStatusInput, setCustomStatusInput] = useState('');
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
 
-  // Active bottom nav tab
-  const [activeTab, setActiveTab] = useState('home');
+  // Active bottom nav tab: 'home' | 'history' | 'profile'
+  const [activeTab, setActiveTab] = useState(initialTab);
 
-  // Calculate dynamic revert time when preset changes
+  // Ensure any timeout is cleared on unmount
   useEffect(() => {
-    const presetObj = TIME_PRESETS.find((p) => p.id === selectedPreset);
-    const mins = presetObj ? presetObj.minutes : 60;
-    const future = new Date(Date.now() + mins * 60 * 1000);
-    const formatted = future.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    setRevertTime(formatted);
-  }, [selectedPreset]);
-
-  // Load existing status on mount
-  useEffect(() => {
-    async function loadStatus() {
-      if (!user?.uid) return;
-      const res = await getFacultyStatus(user.uid);
-      if (res) {
-        // Map backend state back to our 6 card IDs
-        if (res.state === STATUS_KEYS.AVAILABLE) setSelectedStatusId('available');
-        else if (res.state === STATUS_KEYS.IN_LECTURE) setSelectedStatusId('unavailable');
-        else if (res.state === STATUS_KEYS.OFF_CAMPUS) setSelectedStatusId('absent');
-        else if (res.message && res.message.toLowerCase().includes('step out')) setSelectedStatusId('temporarily_out');
-        else setSelectedStatusId('busy');
-
-        if (res.message) setCustomNote(res.message);
-        if (res.updatedAt) {
-          setLastUpdatedTime(res.updatedAt);
-          setLastUpdatedText('Just now');
-        }
-      }
-    }
-    loadStatus();
-  }, [user?.uid]);
+    return () => {
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
+  }, []);
 
   // Handle 1-Tap status tap
   const handleSelectStatus = async (card) => {
-    setSelectedStatusId(card.id);
     const message = customNote.trim() || card.subtitle;
     await executeBroadcast(card.backendState, message);
   };
 
-  // Perform broadcast to Firebase
   const executeBroadcast = async (backendState, message) => {
-    if (!user?.uid) return;
     setBroadcasting(true);
     setBroadcastBannerSuccess(false);
 
     try {
-      const res = await broadcastStatus(user.uid, backendState, message);
-      if (res.success) {
-        setLastUpdatedTime(res.timestamp);
-        setLastUpdatedText('Just now');
+      const res = await broadcastStatusToFirebase(backendState, message);
+      if (res?.success) {
         setBroadcastBannerSuccess(true);
         setTimeout(() => setBroadcastBannerSuccess(false), 3500);
+
+        // Schedule auto-revert to Available if enabled
+        if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+        if (autoResetEnabled && backendState !== STATUS_KEYS.AVAILABLE) {
+          let delayMs = 60 * 60 * 1000;
+          if (selectedPreset === 'custom' && customRevertDate) {
+            const now = new Date();
+            const target = new Date(customRevertDate);
+            target.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+            if (target.getTime() <= now.getTime()) {
+              target.setDate(target.getDate() + 1);
+            }
+            delayMs = Math.max(target.getTime() - now.getTime(), 1000);
+          } else {
+            const presetObj = TIME_PRESETS.find((p) => p.id === selectedPreset);
+            if (presetObj && presetObj.minutes) {
+              delayMs = presetObj.minutes * 60 * 1000;
+            }
+          }
+
+          resetTimeoutRef.current = setTimeout(async () => {
+            const defaultCard = STATUS_CARDS.find((c) => c.id === 'available') || STATUS_CARDS[0];
+            try {
+              await broadcastStatusToFirebase(defaultCard.backendState, defaultCard.subtitle);
+            } catch (e) {
+              console.error('Auto-reset broadcast error:', e);
+            }
+          }, delayMs);
+        }
       }
     } catch (err) {
       console.error('Broadcast failed:', err);
@@ -172,335 +222,312 @@ export default function FacultyHomeScreen() {
     await executeBroadcast(activeCard.backendState, customStatusInput.trim());
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out from Faculty Broadcaster?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/(auth)/login');
+  const handleBackPress = () => {
+    if (activeTab === 'profile') {
+      setActiveTab('home');
+    } else {
+      Alert.alert('Faculty Sign Out', 'Do you want to log out of the Faculty Broadcaster session?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            router.replace('/(auth)/login');
+          },
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const activeCardObj = STATUS_CARDS.find((c) => c.id === selectedStatusId) || STATUS_CARDS[0];
   const facultyName = user?.displayName || 'Dr. Anjali Mehta';
   const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • ECS Dept';
 
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.loadingRoot}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FAF8FE" />
+        <ActivityIndicator size="small" color="#1D4ED8" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FAF8FE" />
 
-      {/* ── 1. HEADER (Exact match to screenshot) ───────────────────── */}
+      {/* ── 1. TOP HEADER (Campus Clarity System) ─────────────────── */}
       <View style={styles.header}>
-        {/* Left Back Arrow */}
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.replace('/(student)')}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <FontAwesome5 name="arrow-left" size={17} color="#0F172A" />
-        </TouchableOpacity>
-
-        {/* Center Title & Subtitle */}
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerBrand}>PROF-PING</Text>
-          <Text style={styles.headerSubtitle}>FACULTY BROADCASTER</Text>
-        </View>
-
-        {/* Right Status Pill & Help */}
-        <View style={styles.headerRight}>
-          <View style={styles.broadcastingPill}>
-            <View style={styles.broadcastingDotRing}>
-              <View style={styles.broadcastingDotCore} />
+            <View style={styles.headerLeft}>
+              <View style={styles.brandTitleBlock}>
+                <Image
+                  source={require('../../assets/profping-logo.png')}
+                  style={styles.headerLogoImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.headerSubtitle}>FACULTY BROADCASTER</Text>
+              </View>
             </View>
-            <Text style={styles.broadcastingText}>Broadcasting</Text>
+
+            {/* Right Status Pill */}
+            <View style={styles.headerRight}>
+              <View style={styles.broadcastingPill}>
+                <View style={styles.broadcastingDotRing}>
+                  <View style={styles.broadcastingDotCore} />
+                </View>
+                <Text style={styles.broadcastingText}>Broadcasting</Text>
+              </View>
+            </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.helpBtn}
-            onPress={() =>
-              Alert.alert(
-                'Faculty Broadcaster',
-                'Your availability is synced atomically to all students and digital campus boards in real-time.\n\nTap any status card below for 1-Tap Broadcast.'
-              )
-            }
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            <FontAwesome5 name="question-circle" size={18} color="#64748B" />
-          </TouchableOpacity>
-        </View>
-      </View>
+            {/* ── 2. FACULTY PROFILE CARD ──────────────────────────────── */}
+            <TouchableOpacity
+              style={styles.profileCard}
+              onPress={() => router.push('/(faculty)/profile')}
+              activeOpacity={0.88}
+            >
+              {/* Avatar with Green Live Dot */}
+              <View style={styles.avatarWrapper}>
+                <Image
+                  source={require('../../assets/faculty-anjali.jpg')}
+                  style={styles.avatarImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.avatarOnlineDot} />
+              </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── 2. FACULTY PROFILE CARD ──────────────────────────────────── */}
-        <View style={styles.profileCard}>
-          {/* Avatar with Green Online Dot */}
-          <View style={styles.avatarWrapper}>
-            <Image
-              source={require('../../assets/faculty-anjali.jpg')}
-              style={styles.avatarImage}
-              resizeMode="cover"
-            />
-            <View style={styles.avatarOnlineDot} />
-          </View>
+              {/* Profile Details */}
+              <View style={styles.profileDetails}>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  {facultyName}
+                </Text>
+                <Text style={styles.profileTitle} numberOfLines={1}>
+                  {facultyDept}
+                </Text>
 
-          {/* Profile Details */}
-          <View style={styles.profileDetails}>
-            <Text style={styles.profileName} numberOfLines={1}>
-              {facultyName}
-            </Text>
-            <Text style={styles.profileTitle} numberOfLines={1}>
-              {facultyDept}
-            </Text>
+                {/* Room / Desk Location Pill */}
+                <View style={styles.locationPill}>
+                  <FontAwesome5 name="map-marker-alt" size={10} color="#4326B6" style={{ marginRight: 5 }} />
+                  <Text style={styles.locationText}>Hall No. 301 • Table 1</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
 
-            {/* Room / Desk Location Pill */}
-            <View style={styles.locationPill}>
-              <FontAwesome5 name="map-marker-alt" size={10} color="#2563EB" style={{ marginRight: 5 }} />
-              <Text style={styles.locationText}>Hall No. 301 • Table 1</Text>
+            {/* ── 3. LIVE STATUS HERO BANNER ───────────────────────────── */}
+            <View
+              style={[
+                styles.liveBanner,
+                {
+                  backgroundColor: activeCardObj.bannerBg || '#DCFCE7',
+                  borderColor: activeCardObj.bannerBorder || '#86EFAC',
+                },
+              ]}
+            >
+              <View style={styles.liveBannerLeft}>
+                <View
+                  style={[
+                    styles.liveBannerDot,
+                    { backgroundColor: activeCardObj.activeBg || '#15803D' },
+                  ]}
+                />
+                <Text style={[styles.liveBannerLabel, { color: activeCardObj.bannerText || '#14532D' }]}>
+                  Live Status:{' '}
+                  <Text style={[styles.liveBannerBold, { color: activeCardObj.bannerText || '#14532D' }]}>
+                    {activeCardObj.label}{' '}
+                  </Text>
+                  <Text style={[styles.liveBannerReset, { color: activeCardObj.bannerText || '#14532D' }]}>
+                    {autoResetEnabled ? `(Resets at ${revertTime})` : '(No auto-reset)'}
+                  </Text>
+                </Text>
+              </View>
+              <FontAwesome5 name="wifi" size={13} color={activeCardObj.activeBg || '#15803D'} />
             </View>
-          </View>
-        </View>
 
-        {/* ── 3. LIVE STATUS HERO BANNER ───────────────────────────────── */}
-        <View style={styles.liveBanner}>
-          <View style={styles.liveBannerLeft}>
-            <View style={styles.liveBannerDot} />
-            <Text style={styles.liveBannerLabel}>
-              Live Status:{' '}
-              <Text style={styles.liveBannerBold}>{activeCardObj.label} </Text>
-              <Text style={styles.liveBannerReset}>
-                {autoResetEnabled ? `(Resets at ${revertTime})` : '(No auto-reset)'}
-              </Text>
-            </Text>
-          </View>
-          <FontAwesome5 name="wifi" size={13} color="#059669" />
-        </View>
+            {/* ── 4. CUSTOM CONTEXT NOTE ──────────────────────────────── */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionHeaderTitle}>CUSTOM CONTEXT NOTE</Text>
+              <Text style={styles.sectionHeaderMeta}>Updated {lastUpdatedText}</Text>
+            </View>
 
-        {/* ── 4. CUSTOM CONTEXT NOTE ──────────────────────────────────── */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>CUSTOM CONTEXT NOTE</Text>
-          <Text style={styles.sectionHeaderMeta}>Updated {lastUpdatedText}</Text>
-        </View>
-
-        <View style={styles.contextNoteCard}>
-          <FontAwesome5 name="comment-alt" size={15} color="#64748B" regular style={styles.contextNoteIcon} />
-          <TextInput
-            style={styles.contextNoteInput}
-            value={customNote}
-            onChangeText={setCustomNote}
-            placeholder="Conducting viva in Lab 2"
-            placeholderTextColor="#94A3B8"
-            maxLength={140}
-          />
-          <TouchableOpacity style={styles.editPencilBtn}>
-            <FontAwesome5 name="pen" size={12} color="#64748B" />
-          </TouchableOpacity>
-        </View>
-
-        {/* ── 5. SELECT INSTANT STATUS (2-COL GRID) ───────────────────── */}
-        <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-          <Text style={styles.sectionHeaderTitle}>SELECT INSTANT STATUS</Text>
-          <View style={styles.oneTapRow}>
-            <FontAwesome5 name="broadcast-tower" size={11} color="#2563EB" style={{ marginRight: 5 }} />
-            <Text style={styles.oneTapText}>1-Tap Broadcast</Text>
-          </View>
-        </View>
-
-        <View style={styles.statusGrid}>
-          {STATUS_CARDS.map((card) => {
-            const isActive = selectedStatusId === card.id;
-            return (
+            <View style={styles.contextNoteCard}>
+              <FontAwesome5 name="comment-alt" size={14} color="#64748B" regular style={styles.contextNoteIcon} />
+              <TextInput
+                style={styles.contextNoteInput}
+                value={customNote}
+                onChangeText={setCustomNote}
+                placeholder="Conducting viva in Lab 2"
+                placeholderTextColor="#94A3B8"
+                maxLength={140}
+              />
               <TouchableOpacity
-                key={card.id}
-                onPress={() => handleSelectStatus(card)}
-                disabled={broadcasting}
-                activeOpacity={0.88}
-                style={[
-                  styles.statusCard,
-                  { backgroundColor: card.color },
-                  isActive && styles.statusCardActiveBorder,
-                ]}
+                style={styles.editPencilBtn}
+                onPress={() => {
+                  setCustomStatusInput(customNote);
+                  setCustomStatusModalVisible(true);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                {/* Top Row: Icon + Active Pill */}
-                <View style={styles.cardTopRow}>
-                  <FontAwesome5 name={card.icon} size={16} color="#ffffff" />
-                  {isActive && (
-                    <View style={styles.activeBadge}>
-                      <Text style={styles.activeBadgeText}>ACTIVE</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Status Name */}
-                <Text style={styles.cardStatusTitle}>{card.label}</Text>
-
-                {/* Subtitle / Context */}
-                <Text style={styles.cardStatusSubtitle}>{card.subtitle}</Text>
+                <FontAwesome5 name="pen" size={12} color="#64748B" />
               </TouchableOpacity>
-            );
-          })}
+            </View>
 
-          {/* 6th Card: Custom Status (Dashed Border) */}
-          <TouchableOpacity
-            style={styles.customStatusCard}
-            onPress={() => {
-              setCustomStatusInput(customNote);
-              setCustomStatusModalVisible(true);
-            }}
-            activeOpacity={0.8}
-          >
-            <FontAwesome5 name="plus-circle" size={22} color="#64748B" />
-            <Text style={styles.customStatusText}>Custom Status</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── 6. AUTO-RESET STATUS CARD ───────────────────────────────── */}
-        <View style={styles.autoResetCard}>
-          {/* Top Row: Clock + Text + Switch */}
-          <View style={styles.autoResetTopRow}>
-            <View style={styles.autoResetLeft}>
-              <FontAwesome5 name="clock" size={17} color="#2563EB" style={{ marginRight: 10 }} />
-              <View>
-                <Text style={styles.autoResetTitle}>Auto-Reset Status</Text>
-                <Text style={styles.autoResetSubtitle}>Reverts to 'Not Signed' at cutoff</Text>
+            {/* ── 5. SELECT INSTANT STATUS (CORE 4 STATUSES) ──────────── */}
+            <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
+              <Text style={styles.sectionHeaderTitle}>SELECT INSTANT STATUS</Text>
+              <View style={styles.oneTapRow}>
+                <Ionicons name="flash" size={12} color="#4326B6" style={{ marginRight: 3 }} />
+                <Text style={styles.oneTapText}>1-Tap Broadcast</Text>
               </View>
             </View>
-            <Switch
-              value={autoResetEnabled}
-              onValueChange={setAutoResetEnabled}
-              trackColor={{ false: '#CBD5E1', true: '#2563EB' }}
-              thumbColor="#ffffff"
-            />
-          </View>
 
-          {/* Middle Row: Revert At + Time Badge */}
-          {autoResetEnabled && (
-            <>
-              <View style={styles.revertAtRow}>
-                <Text style={styles.revertAtLabel}>Revert At:</Text>
-                <View style={styles.revertTimePill}>
-                  <FontAwesome5 name="clock" size={11} color="#2563EB" style={{ marginRight: 5 }} />
-                  <Text style={styles.revertTimeText}>{revertTime}</Text>
-                </View>
-              </View>
+            <View style={styles.statusGrid}>
+              {STATUS_CARDS.map((card) => {
+                const isActive = selectedStatusId === card.id;
+                return (
+                  <TouchableOpacity
+                    key={card.id}
+                    onPress={() => handleSelectStatus(card)}
+                    disabled={broadcasting}
+                    activeOpacity={0.85}
+                    style={[
+                      styles.statusCard,
+                      {
+                        backgroundColor: isActive ? card.activeBg : card.inactiveBg,
+                        borderColor: isActive ? card.activeBg : card.inactiveBorder,
+                      },
+                      isActive && styles.statusCardActiveElevation,
+                    ]}
+                  >
+                    {/* Top Row: Icon + Active White Checkmark */}
+                    <View style={styles.cardTopRow}>
+                      <FontAwesome5
+                        name={card.icon}
+                        size={17}
+                        color={isActive ? '#FFFFFF' : card.iconColor}
+                      />
+                      {isActive ? (
+                        <View style={styles.activeCheckBadge}>
+                          <FontAwesome5 name="check" size={10} color="#FFFFFF" />
+                        </View>
+                      ) : (
+                        <View style={[styles.inactiveIndicator, { borderColor: card.inactiveBorder }]} />
+                      )}
+                    </View>
 
-              {/* Bottom Row: 15m / 30m / 1h / Custom Selector */}
-              <View style={styles.presetsRow}>
-                {TIME_PRESETS.map((preset) => {
-                  const isSelected = selectedPreset === preset.id;
-                  return (
-                    <TouchableOpacity
-                      key={preset.id}
-                      style={[styles.presetBtn, isSelected && styles.presetBtnActive]}
-                      onPress={() => setSelectedPreset(preset.id)}
-                      activeOpacity={0.8}
+                    {/* Status Name */}
+                    <Text
+                      style={[
+                        styles.cardStatusTitle,
+                        { color: isActive ? card.activeText : card.inactiveText },
+                      ]}
                     >
-                      <Text style={[styles.presetBtnText, isSelected && styles.presetBtnTextActive]}>
-                        {preset.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                      {card.label}
+                    </Text>
+
+                    {/* Subtitle / Context */}
+                    <Text
+                      style={[
+                        styles.cardStatusSubtitle,
+                        { color: isActive ? 'rgba(255, 255, 255, 0.88)' : card.inactiveSub },
+                      ]}
+                    >
+                      {card.subtitle}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* ── 6. AUTO-RESET STATUS CARD ───────────────────────────── */}
+            <View style={styles.autoResetCard}>
+              {/* Top Row: Clock + Text + Switch */}
+              <View style={styles.autoResetTopRow}>
+                <View style={styles.autoResetLeft}>
+                  <Ionicons name="alarm-outline" size={20} color="#4326B6" style={{ marginRight: 10 }} />
+                  <View>
+                    <Text style={styles.autoResetTitle}>Auto-Reset Status</Text>
+                    <Text style={styles.autoResetSubtitle}>Reverts to 'Not Signed' at cutoff</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={autoResetEnabled}
+                  onValueChange={setAutoResetEnabled}
+                  trackColor={{ false: '#CBD5E1', true: '#4326B6' }}
+                  thumbColor="#ffffff"
+                />
               </View>
-            </>
-          )}
-        </View>
 
-        {/* ── 7. UPDATE CAMPUS BROADCAST BUTTON ───────────────────────── */}
-        <TouchableOpacity
-          style={[styles.updateBroadcastBtn, broadcasting && styles.updateBroadcastBtnDisabled]}
-          onPress={handleUpdateBroadcast}
-          disabled={broadcasting}
-          activeOpacity={0.88}
-        >
-          {broadcasting ? (
-            <ActivityIndicator color="#ffffff" size="small" />
-          ) : (
-            <>
-              <FontAwesome5 name="broadcast-tower" size={15} color="#ffffff" style={{ marginRight: 8 }} />
-              <Text style={styles.updateBroadcastText}>Update Campus Broadcast</Text>
-            </>
-          )}
-        </TouchableOpacity>
+              {/* Middle Row: Revert At + Time Badge */}
+              {autoResetEnabled && (
+                <>
+                  <View style={styles.revertAtRow}>
+                    <Text style={styles.revertAtLabel}>Revert At:</Text>
+                    <View style={styles.revertTimePill}>
+                      <FontAwesome5 name="clock" size={11} color="#4326B6" style={{ marginRight: 6 }} />
+                      <Text style={styles.revertTimeText}>{revertTime}</Text>
+                    </View>
+                  </View>
 
-        {/* Success toast feedback */}
-        {broadcastBannerSuccess && (
-          <View style={styles.successToast}>
-            <FontAwesome5 name="check-circle" size={13} color="#15803D" style={{ marginRight: 6 }} />
-            <Text style={styles.successToastText}>Broadcast atomic update synced to campus directory!</Text>
-          </View>
-        )}
-      </ScrollView>
+                  {/* Bottom Row: 15m / 30m / 1h / Custom Selector */}
+                  <View style={styles.presetsRow}>
+                    {TIME_PRESETS.map((preset) => {
+                      const isSelected = selectedPreset === preset.id;
+                      return (
+                        <TouchableOpacity
+                          key={preset.id}
+                          style={[styles.presetBtn, isSelected && styles.presetBtnActive]}
+                          onPress={() => {
+                            if (preset.id === 'custom') {
+                              setShowPicker(true);
+                            } else {
+                              setSelectedPreset(preset.id);
+                              setCustomRevertDate(null);
+                            }
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.presetBtnText, isSelected && styles.presetBtnTextActive]}>
+                            {preset.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
 
-      {/* ── 8. BOTTOM NAVIGATION BAR ─────────────────────────────────── */}
-      <View style={styles.bottomNav}>
-        {/* Home */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => setActiveTab('home')}
-          activeOpacity={0.8}
-        >
-          <FontAwesome5
-            name="home"
-            size={19}
-            color={activeTab === 'home' ? '#2563EB' : '#64748B'}
-            style={{ marginBottom: 4 }}
-          />
-          <Text style={[styles.navLabel, activeTab === 'home' && styles.navLabelActive]}>
-            Home
-          </Text>
-        </TouchableOpacity>
+                  {showPicker && (
+                    <DateTimePicker
+                      value={customRevertDate || new Date()}
+                      mode="time"
+                      is24Hour={false}
+                      display="default"
+                      onChange={(event, selected) => {
+                        setShowPicker(false);
+                        if (selected) {
+                          setCustomRevertDate(selected);
+                          setSelectedPreset('custom');
+                        }
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </View>
 
-        {/* History */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => {
-            setActiveTab('history');
-            Alert.alert(
-              'Broadcast History',
-              `Recent audit logs:\n• ${activeCardObj.label}: "${customNote}" (${lastUpdatedText})\n• Available: "Available in cabin" (Today, 9:30 AM)`
-            );
-          }}
-          activeOpacity={0.8}
-        >
-          <FontAwesome5
-            name="clock"
-            size={19}
-            color={activeTab === 'history' ? '#2563EB' : '#64748B'}
-            style={{ marginBottom: 4 }}
-          />
-          <Text style={[styles.navLabel, activeTab === 'history' && styles.navLabelActive]}>
-            History
-          </Text>
-        </TouchableOpacity>
+            {/* Instant 1-Tap broadcast feedback toast */}
+            {broadcastBannerSuccess && (
+              <View style={styles.successToast}>
+                <FontAwesome5 name="check-circle" size={13} color="#15803D" style={{ marginRight: 6 }} />
+                <Text style={styles.successToastText}>Broadcast atomic update synced to campus directory!</Text>
+              </View>
+            )}
 
-        {/* Profile */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => {
-            setActiveTab('profile');
-            handleLogout();
-          }}
-          activeOpacity={0.8}
-        >
-          <FontAwesome5
-            name="user"
-            size={19}
-            color={activeTab === 'profile' ? '#2563EB' : '#64748B'}
-            style={{ marginBottom: 4 }}
-          />
-          <Text style={[styles.navLabel, activeTab === 'profile' && styles.navLabelActive]}>
-            Profile
-          </Text>
-        </TouchableOpacity>
-      </View>
+          </ScrollView>
 
       {/* ── CUSTOM STATUS MODAL ─────────────────────────────────────── */}
       <Modal
@@ -513,7 +540,7 @@ export default function FacultyHomeScreen() {
           <View style={styles.modalDialog}>
             <Text style={styles.modalTitle}>Set Custom Status</Text>
             <Text style={styles.modalSubtitle}>
-              Type your custom availability or message to display across campus:
+              Type your custom availability note to broadcast across campus:
             </Text>
 
             <TextInput
@@ -547,43 +574,54 @@ export default function FacultyHomeScreen() {
   );
 }
 
-// ── EXACT STYLES MATCHING THE REFERENCE SCREENSHOT ─────────────────────────
+// ── EXACT CAMPUS CLARITY DESIGN SYSTEM STYLES ────────────────────────────────
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FAF8FE', // Whisper Violet Canvas (Campus Clarity theme)
+  },
+  loadingRoot: {
+    flex: 1,
+    backgroundColor: '#FAF8FE',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // 1. Top Header
   header: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FAF8FE',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 48,
+    paddingTop: Platform.OS === 'ios' ? 62 : 46,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
-  backBtn: {
-    padding: 6,
-    width: 36,
-  },
-  headerCenter: {
+  headerLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  headerBrand: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#1D4ED8',
-    letterSpacing: -0.2,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  brandTitleBlock: {
+    justifyContent: 'center',
+  },
+  headerLogoImage: {
+    width: 128,
+    height: 28,
   },
   headerSubtitle: {
-    fontSize: 9.5,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
+    fontSize: 9,
     color: '#64748B',
-    letterSpacing: 0.8,
+    letterSpacing: 1.2,
     marginTop: 2,
   },
   headerRight: {
@@ -595,10 +633,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#DCFCE7',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    paddingHorizontal: 9,
     borderRadius: 20,
-    gap: 5,
+    gap: 6,
     borderWidth: 1,
     borderColor: '#BBF7D0',
   },
@@ -617,37 +655,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A',
   },
   broadcastingText: {
-    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
+    fontSize: 11,
     color: '#15803D',
   },
   helpBtn: {
-    padding: 4,
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  // Scroll
+  // Scroll Content
   scroll: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 85,
+    paddingTop: 8,
+    paddingBottom: 88,
   },
 
-  // 2. Profile Card
+  // 2. Profile Summary Card
   profileCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
     shadowRadius: 5,
-    elevation: 1,
+    elevation: 2,
     marginBottom: 12,
   },
   avatarWrapper: {
@@ -657,7 +700,8 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: 58,
     height: 58,
-    borderRadius: 10,
+    borderRadius: 12,
+    backgroundColor: '#EDE9FE',
   },
   avatarOnlineDot: {
     position: 'absolute',
@@ -668,17 +712,19 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: '#22C55E',
     borderWidth: 2,
-    borderColor: '#ffffff',
+    borderColor: '#FFFFFF',
   },
   profileDetails: {
     flex: 1,
   },
   profileName: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     fontSize: 16,
-    fontWeight: '800',
     color: '#0F172A',
   },
   profileTitle: {
+    fontFamily: 'Inter_500Medium',
     fontSize: 12,
     color: '#64748B',
     marginTop: 2,
@@ -686,24 +732,27 @@ const styles = StyleSheet.create({
   locationPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 3,
+    backgroundColor: '#EDE9FE',
+    paddingVertical: 3.5,
     paddingHorizontal: 8,
     borderRadius: 6,
     marginTop: 6,
     alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
   locationText: {
-    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
-    color: '#2563EB',
+    fontSize: 11,
+    color: '#4326B6',
   },
 
   // 3. Live Status Banner
   liveBanner: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: '#F0FDF4',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: '#BBF7D0',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -725,17 +774,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   liveBannerLabel: {
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
     color: '#065F46',
-    fontWeight: '700',
     flex: 1,
   },
   liveBannerBold: {
+    fontFamily: 'Inter_800ExtraBold',
     fontWeight: '800',
+    color: '#15803D',
   },
   liveBannerReset: {
+    fontFamily: 'Inter_500Medium',
     color: '#047857',
-    fontWeight: '500',
     fontSize: 11.5,
   },
 
@@ -747,39 +798,42 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionHeaderTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     fontSize: 11,
-    fontWeight: '800',
     color: '#64748B',
     letterSpacing: 0.5,
   },
   sectionHeaderMeta: {
+    fontFamily: 'Inter_500Medium',
     fontSize: 11,
     color: '#94A3B8',
-    fontWeight: '500',
   },
   oneTapRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   oneTapText: {
-    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
-    color: '#2563EB',
+    fontSize: 11,
+    color: '#4326B6',
   },
 
   // 4. Custom Context Note
   contextNoteCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
     shadowRadius: 3,
     elevation: 1,
   },
@@ -788,96 +842,87 @@ const styles = StyleSheet.create({
   },
   contextNoteInput: {
     flex: 1,
-    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13.5,
     color: '#0F172A',
-    fontWeight: '500',
     padding: 0,
   },
   editPencilBtn: {
     padding: 4,
   },
 
-  // 5. 2-Column Grid
+  // 5. 2-Column Status Grid (Core 4 Statuses)
   statusGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
   statusCard: {
-    width: '48.5%',
-    borderRadius: 10,
-    padding: 12,
-    minHeight: 88,
+    width: '48%',
+    borderRadius: 12,
+    padding: 13,
+    minHeight: 96,
+    marginBottom: 12,
     justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
+    borderWidth: 1.5,
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 2,
   },
-  statusCardActiveBorder: {
-    borderWidth: 2.5,
-    borderColor: '#065F46',
+  statusCardActiveElevation: {
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 4,
   },
   cardTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  activeBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.28)',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  activeBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 0.5,
-  },
-  cardStatusTitle: {
-    fontSize: 15.5,
-    fontWeight: '800',
-    color: '#ffffff',
-    marginTop: 6,
-  },
-  cardStatusSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.85)',
-    marginTop: 2,
-  },
-
-  // Custom Status Card (Dashed)
-  customStatusCard: {
-    width: '48.5%',
+  activeCheckBadge: {
+    width: 20,
+    height: 20,
     borderRadius: 10,
-    padding: 12,
-    minHeight: 88,
-    backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    borderStyle: 'dashed',
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  customStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#334155',
+  inactiveIndicator: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    opacity: 0.65,
+  },
+  cardStatusTitle: {
+    fontFamily: 'Inter_800ExtraBold',
+    fontWeight: '800',
+    fontSize: 15.5,
     marginTop: 6,
+  },
+  cardStatusSubtitle: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 14.5,
   },
 
   // 6. Auto-Reset Status Card
   autoResetCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 14,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
+    marginBottom: 14,
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
     shadowRadius: 3,
     elevation: 1,
   },
@@ -892,11 +937,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   autoResetTitle: {
-    fontSize: 13.5,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
+    fontSize: 13.5,
     color: '#0F172A',
   },
   autoResetSubtitle: {
+    fontFamily: 'Inter_400Regular',
     fontSize: 11,
     color: '#64748B',
     marginTop: 2,
@@ -909,22 +956,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   revertAtLabel: {
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 11.5,
-    fontWeight: '600',
     color: '#64748B',
   },
   revertTimePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 3,
+    backgroundColor: '#EDE9FE',
+    paddingVertical: 3.5,
     paddingHorizontal: 8,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
   revertTimeText: {
-    fontSize: 11.5,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
-    color: '#1D4ED8',
+    fontSize: 11.5,
+    color: '#4326B6',
   },
   presetsRow: {
     flexDirection: 'row',
@@ -939,40 +989,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   presetBtnActive: {
-    backgroundColor: '#0052CC',
+    backgroundColor: '#4326B6',
   },
   presetBtnText: {
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 11.5,
-    fontWeight: '600',
     color: '#475569',
   },
   presetBtnTextActive: {
-    color: '#ffffff',
+    fontFamily: 'Inter_800ExtraBold',
     fontWeight: '800',
-  },
-
-  // 7. Update Campus Broadcast Button
-  updateBroadcastBtn: {
-    backgroundColor: '#0052CC',
-    borderRadius: 10,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0052CC',
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-    elevation: 3,
-    marginBottom: 10,
-  },
-  updateBroadcastBtnDisabled: {
-    opacity: 0.65,
-  },
-  updateBroadcastText: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#ffffff',
-    letterSpacing: 0.2,
+    color: '#FFFFFF',
   },
   successToast: {
     flexDirection: 'row',
@@ -986,76 +1013,102 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   successToastText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     fontSize: 11.5,
     color: '#15803D',
-    fontWeight: '700',
   },
 
-  // 8. Bottom Navigation
-  bottomNav: {
-    flexDirection: 'row',
-    backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    paddingTop: 8,
-    paddingBottom: 16,
+  // 8. Floating Capsule Navigation Bar (Matching Student HomeScreen)
+  floatingNavBar: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  navTab: {
-    flex: 1,
+    bottom: Platform.OS === 'ios' ? 24 : 16,
+    left: 16,
+    right: 16,
+    height: 64,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 9999,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: 2,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.9)',
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 12,
+    zIndex: 99,
   },
-  navLabel: {
-    fontSize: 10,
+  floatingTabItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    minWidth: 70,
+  },
+  floatingTabItemActive: {
+    backgroundColor: '#EDE9FE',
+  },
+  floatingTabLabel: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 10.5,
     color: '#64748B',
-    fontWeight: '500',
+    marginTop: 2,
   },
-  navLabelActive: {
-    color: '#2563EB',
+  floatingTabLabelActive: {
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
+    color: '#4326B6',
   },
 
-  // Modal
+  // Modals
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
   modalDialog: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     padding: 20,
     width: '100%',
     maxWidth: 340,
-    shadowColor: '#000',
+    shadowColor: '#1A191F',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   modalTitle: {
-    fontSize: 16,
+    fontFamily: 'Inter_800ExtraBold',
     fontWeight: '800',
+    fontSize: 16.5,
     color: '#0F172A',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   modalSubtitle: {
+    fontFamily: 'Inter_400Regular',
     fontSize: 12,
     color: '#64748B',
     marginBottom: 14,
     lineHeight: 17,
   },
   modalInput: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FAF8FE',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 10,
     padding: 12,
+    fontFamily: 'Inter_500Medium',
     fontSize: 13,
     color: '#0F172A',
     marginBottom: 16,
@@ -1066,25 +1119,78 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modalCancelBtn: {
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 14,
     borderRadius: 8,
     backgroundColor: '#F1F5F9',
   },
   modalCancelText: {
+    fontFamily: 'Inter_600SemiBold',
     fontSize: 13,
-    fontWeight: '600',
     color: '#64748B',
   },
   modalSaveBtn: {
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#0052CC',
+    backgroundColor: '#4326B6',
   },
   modalSaveText: {
-    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
-    color: '#ffffff',
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+
+  // History List in Modal
+  historyList: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FAF8FE',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    borderRadius: 10,
+    padding: 10,
+  },
+  historyDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  historyItemTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  historyItemNote: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  historyItemTime: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 10.5,
+    color: '#94A3B8',
+    marginLeft: 6,
+  },
+  modalCloseBtn: {
+    backgroundColor: '#4326B6',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 13.5,
+    color: '#FFFFFF',
   },
 });
