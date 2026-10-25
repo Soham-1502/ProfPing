@@ -4,28 +4,29 @@
  * Student Access Control (Kill Switch), and Department Settings.
  */
 
-import { ref, onValue, get, set, update, remove } from 'firebase/database';
+import { ref, onValue, get, set, update, remove, off } from 'firebase/database';
 import { db } from './firebase';
 import { STATUS_KEYS } from '@profping/shared';
-
-// Initial faculty directory (empty clean state)
-const INITIAL_FACULTY_SEED = {};
 
 /**
  * 1. LIVE COMMAND CENTER: Subscribe to live faculty roster for a department
  */
 export function subscribeToDepartmentFaculty(department, callback) {
   const facultyRef = ref(db, 'faculty');
-  const unsubscribe = onValue(facultyRef, (snapshot) => {
-    const facultyMap = snapshot.val() || {};
-    const list = Object.values(facultyMap).filter(
-      (f) => !department || department === 'ALL' || f.department === department
-    );
-    callback(list);
-  }, (error) => {
-    console.warn('Faculty snapshot listener note:', error.message);
-    callback([]);
-  });
+  const unsubscribe = onValue(
+    facultyRef,
+    (snapshot) => {
+      const facultyMap = snapshot.val() || {};
+      const list = Object.values(facultyMap).filter(
+        (f) => !department || department === 'ALL' || (f.department || '').toUpperCase() === (department || '').toUpperCase()
+      );
+      callback(list);
+    },
+    (error) => {
+      console.warn('Faculty snapshot listener note:', error.message);
+      callback([]);
+    }
+  );
 
   return () => unsubscribe();
 }
@@ -33,110 +34,208 @@ export function subscribeToDepartmentFaculty(department, callback) {
 /**
  * 2. FACULTY DIRECTORY CRUD
  */
-export async function addFacultyMember(facultyData) {
-  const facultyId = facultyData.uid || `faculty-${Date.now()}`;
-  const payload = {
-    ...facultyData,
-    uid: facultyId,
-    role: 'faculty',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    status: {
-      state: STATUS_KEYS.OFF_CAMPUS,
-      message: 'New Faculty Provisioned',
+export async function addFacultyMember(facultyData, caller = {}) {
+  try {
+    const res = await fetch('/api/admin/faculty', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'add_faculty',
+        callerEmail: caller.email,
+        callerRole: caller.role || 'hod',
+        callerDepartment: caller.department || facultyData.department,
+        facultyData,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to add faculty member');
+    return result.faculty;
+  } catch (apiErr) {
+    console.warn('API add faculty fallback to direct RTDB write:', apiErr.message);
+    const facultyId = facultyData.uid || `faculty-${(facultyData.department || 'CMPN').toLowerCase()}-${Date.now()}`;
+    const payload = {
+      ...facultyData,
+      uid: facultyId,
+      role: 'faculty',
+      createdAt: Date.now(),
       updatedAt: Date.now(),
-    },
-  };
+      preapproved: true,
+      status: {
+        state: STATUS_KEYS.OFF_CAMPUS,
+        message: 'New Faculty Provisioned',
+        updatedAt: Date.now(),
+      },
+    };
 
-  // Write to both /faculty/{id} and /users/{id}
-  await set(ref(db, `faculty/${facultyId}`), payload);
-  await set(ref(db, `users/${facultyId}`), payload);
-  return payload;
+    await set(ref(db, `faculty/${facultyId}`), payload);
+    await set(ref(db, `users/${facultyId}`), payload);
+    if (facultyData.email) {
+      const sanitizedKey = facultyData.email.replace(/\./g, '_').replace(/@/g, '_at_');
+      await set(ref(db, `preapproved_users/${sanitizedKey}`), payload);
+    }
+    return payload;
+  }
 }
 
-export async function updateFacultyMember(facultyId, updates) {
-  const payload = {
-    ...updates,
-    updatedAt: Date.now(),
-  };
+export async function updateFacultyMember(facultyId, updates, caller = {}) {
+  try {
+    const res = await fetch('/api/admin/faculty', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_faculty',
+        callerEmail: caller.email,
+        callerRole: caller.role || 'hod',
+        callerDepartment: caller.department || updates.department,
+        facultyUid: facultyId,
+        facultyData: updates,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to update faculty member');
+    return result.faculty;
+  } catch (apiErr) {
+    console.warn('API update faculty fallback to direct RTDB write:', apiErr.message);
+    const payload = {
+      ...updates,
+      updatedAt: Date.now(),
+    };
 
-  await update(ref(db, `faculty/${facultyId}`), payload);
-  await update(ref(db, `users/${facultyId}`), payload);
-  return payload;
+    await update(ref(db, `faculty/${facultyId}`), payload);
+    await update(ref(db, `users/${facultyId}`), payload);
+    return payload;
+  }
 }
 
-export async function deleteFacultyMember(facultyId) {
-  await remove(ref(db, `faculty/${facultyId}`));
-  await remove(ref(db, `users/${facultyId}`));
-  return true;
+export async function deleteFacultyMember(facultyId, facultyEmail, caller = {}) {
+  try {
+    const res = await fetch('/api/admin/faculty', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_faculty',
+        callerEmail: caller.email,
+        callerRole: caller.role || 'hod',
+        callerDepartment: caller.department,
+        facultyUid: facultyId,
+        facultyData: { email: facultyEmail },
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to delete faculty member');
+    return true;
+  } catch (apiErr) {
+    console.warn('API delete faculty fallback to direct RTDB delete:', apiErr.message);
+    await remove(ref(db, `faculty/${facultyId}`));
+    await remove(ref(db, `users/${facultyId}`));
+    if (facultyEmail) {
+      const sanitizedKey = facultyEmail.replace(/\./g, '_').replace(/@/g, '_at_');
+      await remove(ref(db, `preapproved_users/${sanitizedKey}`));
+    }
+    return true;
+  }
 }
 
 /**
- * 3. STUDENT ACCESS CONTROL: Searchable Audit Log and Kill Switch
+ * 3. STUDENT ACCESS CONTROL: Scoped to self-declared department with Kill Switch
  */
-export function subscribeToStudents(callback) {
+export function subscribeToStudents(department, callback) {
   const usersRef = ref(db, 'users');
-  const unsubscribe = onValue(usersRef, (snapshot) => {
-    const allUsers = snapshot.val() || {};
-    const students = Object.values(allUsers).filter(
-      (u) => u.role === 'student' || (u.email && u.email.endsWith('@student.sfit.ac.in'))
-    );
+  const studentAccessRef = ref(db, 'studentAccess');
 
-    // If no students yet in database, provide sample demo audit log
-    if (students.length === 0) {
-      callback([
-        {
-          uid: 'student-demo-01',
-          name: 'Soham Tamhankar',
-          email: 'student@sfit.ac.in',
-          rollNo: '21102B0045',
-          department: 'CMPN',
-          year: 'TE CMPN A',
-          is_active: true,
-          lastLoginAt: Date.now() - 1000 * 60 * 18,
-          createdAt: Date.now() - 1000 * 60 * 60 * 24 * 30,
-        },
-        {
-          uid: 'student-demo-02',
-          name: 'Aditi Sharma',
-          email: 'aditi.sharma@student.sfit.ac.in',
-          rollNo: '21102B0012',
-          department: 'CMPN',
-          year: 'TE CMPN B',
-          is_active: true,
-          lastLoginAt: Date.now() - 1000 * 60 * 60 * 2,
-          createdAt: Date.now() - 1000 * 60 * 60 * 24 * 45,
-        },
-        {
-          uid: 'student-demo-03',
-          name: 'Rohan Verma',
-          email: 'rohan.verma@student.sfit.ac.in',
-          rollNo: '20102A0088',
-          department: 'ECS',
-          year: 'BE ECS',
-          is_active: false,
-          lastLoginAt: Date.now() - 1000 * 60 * 60 * 24 * 7,
-          createdAt: Date.now() - 1000 * 60 * 60 * 24 * 90,
-        },
-      ]);
-      return;
+  let usersCache = {};
+  let accessCache = {};
+
+  const processAndEmit = () => {
+    const studentMap = new Map();
+
+    // 1. Overlay studentAccess entries (written by mobile app)
+    Object.entries(accessCache).forEach(([uid, acc]) => {
+      if (!acc) return;
+      studentMap.set(uid, {
+        uid,
+        name: acc.name || 'Student',
+        email: acc.email || '',
+        department: (acc.department || '').toUpperCase(),
+        lastSeen: acc.lastSeen || Date.now(),
+        is_active: acc.revoked !== true,
+        revoked: acc.revoked === true,
+      });
+    });
+
+    // 2. Overlay users table
+    Object.entries(usersCache).forEach(([uid, u]) => {
+      if (!u) return;
+      const isStudent = u.role === 'student' || (u.email && u.email.endsWith('@student.sfit.ac.in'));
+      if (isStudent) {
+        const existing = studentMap.get(uid) || {};
+        const isRevoked = u.is_active === false || u.revoked === true || u.status === 'revoked';
+        studentMap.set(uid, {
+          uid,
+          name: u.displayName || u.name || existing.name || 'Student',
+          email: u.email || existing.email || '',
+          department: (u.department || existing.department || '').toUpperCase(),
+          lastSeen: u.lastLoginAt || existing.lastSeen || u.claimedAt || Date.now(),
+          is_active: !isRevoked,
+          revoked: isRevoked,
+          rollNo: u.rollNo || existing.rollNo || '',
+        });
+      }
+    });
+
+    // 3. Filter strictly by HOD's department if specified
+    const targetDept = (department || '').toUpperCase();
+    const allStudents = Array.from(studentMap.values());
+    const filtered = allStudents.filter((s) => {
+      if (!targetDept || targetDept === 'ALL') return true;
+      return s.department === targetDept || s.department.includes(targetDept);
+    });
+
+    callback(filtered);
+  };
+
+  const unsubUsers = onValue(
+    usersRef,
+    (snap) => {
+      usersCache = snap.val() || {};
+      processAndEmit();
+    },
+    (err) => {
+      console.warn('Student users snapshot note:', err.message);
     }
+  );
 
-    callback(students);
-  }, (err) => {
-    console.warn('Student snapshot listener note:', err.message);
-  });
+  const unsubAccess = onValue(
+    studentAccessRef,
+    (snap) => {
+      accessCache = snap.val() || {};
+      processAndEmit();
+    },
+    (err) => {
+      console.warn('Student access snapshot note:', err.message);
+    }
+  );
 
-  return () => unsubscribe();
+  return () => {
+    off(usersRef);
+    off(studentAccessRef);
+  };
 }
 
-export async function toggleStudentAccess(studentUid, currentStatus) {
-  const newStatus = !currentStatus;
-  await update(ref(db, `users/${studentUid}`), {
-    is_active: newStatus,
-    statusModifiedAt: Date.now(),
-  });
-  return newStatus;
+export async function toggleStudentAccess(studentUid, currentActiveStatus) {
+  const newActiveStatus = !currentActiveStatus;
+  const isRevoked = !newActiveStatus;
+
+  // Multi-path update: update /users/{uid} and /studentAccess/{uid}
+  const updates = {};
+  updates[`users/${studentUid}/is_active`] = newActiveStatus;
+  updates[`users/${studentUid}/revoked`] = isRevoked;
+  updates[`users/${studentUid}/statusModifiedAt`] = Date.now();
+  updates[`studentAccess/${studentUid}/revoked`] = isRevoked;
+  updates[`studentAccess/${studentUid}/lastModifiedAt`] = Date.now();
+
+  await update(ref(db), updates);
+  return newActiveStatus;
 }
 
 /**
@@ -157,7 +256,7 @@ export async function getDepartmentSettings(department = 'CMPN') {
     department,
     departmentName: department === 'ECS' ? 'Electronics & Computer Science' : 'Computer Engineering',
     hoursStart: '08:30',
-    hoursEnd: '17:00',
+    hoursEnd: '17:30',
     autoResetOffCampus: true,
     autoResetTime: '17:01',
     allowCustomStatusNotes: true,
