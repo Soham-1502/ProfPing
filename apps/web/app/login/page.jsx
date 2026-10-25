@@ -107,13 +107,24 @@ export default function LoginPage() {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
+            gap: '12px',
             marginBottom: '16px',
           }}>
+            <img
+              src="/icon.png"
+              alt="ProfPing Logo Icon"
+              style={{
+                height: '42px',
+                width: '42px',
+                borderRadius: '10px',
+                boxShadow: '0 4px 12px rgba(73, 47, 177, 0.2)',
+              }}
+            />
             <img
               src="/profping-logo.png"
               alt="ProfPing"
               style={{
-                height: '40px',
+                height: '32px',
                 width: 'auto',
                 maxWidth: '190px',
                 objectFit: 'contain',

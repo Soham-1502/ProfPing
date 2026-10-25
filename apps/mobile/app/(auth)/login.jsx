@@ -11,7 +11,6 @@ import {
   ScrollView,
   StatusBar,
   Modal,
-  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { FontAwesome5, AntDesign } from '@expo/vector-icons';
@@ -305,13 +304,20 @@ export default function MobileLoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Official ProfPing Logo Icon */}
+          {/* Academic Shield Icon with Graduation Cap & Broadcast Waves */}
           <View style={styles.brandIconWrapper}>
-            <Image
-              source={require('../../assets/icon.png')}
-              style={styles.officialBrandIcon}
-              resizeMode="contain"
-            />
+            {/* Wi-Fi Broadcast Waves at Top-Right */}
+            <View style={styles.wifiWaveBox}>
+              <FontAwesome5 name="wifi" size={16} color="#C4B5FD" />
+            </View>
+
+            {/* Shield with Graduation Cap Inside */}
+            <View style={styles.shieldBase}>
+              <FontAwesome5 name="shield-alt" size={54} color="#FFFFFF" />
+              <View style={styles.capOverlay}>
+                <FontAwesome5 name="graduation-cap" size={21} color="#341C94" />
+              </View>
+            </View>
           </View>
 
           {/* Main Title: Bold White Inter */}
@@ -661,21 +667,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Official Brand Logo Icon
+  // Brand Icon: Shield + Cap + Broadcast Waves
   brandIconWrapper: {
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
+    width: 72,
+    height: 72,
+    marginTop: 2,
     marginBottom: 16,
   },
-  officialBrandIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 16,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+  shieldBase: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  capOverlay: {
+    position: 'absolute',
+    top: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wifiWaveBox: {
+    position: 'absolute',
+    top: 0,
+    right: 6,
+    transform: [{ rotate: '42deg' }],
   },
 
   headerTitle: {

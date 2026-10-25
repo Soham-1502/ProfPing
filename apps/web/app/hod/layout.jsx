@@ -71,13 +71,22 @@ export default function HodLayout({ children }) {
             flexWrap: 'wrap',
             gap: '16px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <img
+                  src="/icon.png"
+                  alt="ProfPing Logo Icon"
+                  style={{
+                    height: '32px',
+                    width: '32px',
+                    borderRadius: '8px',
+                  }}
+                />
                 <img
                   src="/profping-logo.png"
                   alt="ProfPing"
                   style={{
-                    height: '30px',
+                    height: '24px',
                     width: 'auto',
                     objectFit: 'contain',
                   }}

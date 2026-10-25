@@ -224,11 +224,16 @@ export default function LandingPage() {
             gap: '16px',
           }}>
             {/* Left: Brand Identity */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <img
+                src="/icon.png"
+                alt="ProfPing Logo Icon"
+                style={{ height: '34px', width: '34px', borderRadius: '8px' }}
+              />
               <img
                 src="/profping-logo.png"
-                alt="ProfPing Logo"
-                style={{ height: '32px', width: 'auto', objectFit: 'contain' }}
+                alt="ProfPing"
+                style={{ height: '26px', width: 'auto', objectFit: 'contain' }}
               />
               <span style={{
                 display: 'inline-flex',
@@ -1635,8 +1640,9 @@ export default function LandingPage() {
             flexWrap: 'wrap',
             gap: '20px',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <img src="/profping-logo.png" alt="ProfPing" style={{ height: '26px' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img src="/icon.png" alt="ProfPing Icon" style={{ height: '24px', width: '24px', borderRadius: '6px' }} />
+              <img src="/profping-logo.png" alt="ProfPing" style={{ height: '22px' }} />
               <span style={{ fontSize: '13px', color: '#746F80' }}>
                 © {new Date().getFullYear()} St. Francis Institute of Technology (SFIT). All rights reserved.
               </span>

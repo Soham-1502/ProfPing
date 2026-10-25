@@ -183,7 +183,7 @@ export default function StudentProfilePage() {
 
         {/* 4. FOOTER METADATA */}
         <View style={styles.footerBlock}>
-          <Text style={styles.footerBuildText}>PROF-PING Student v2.4.1</Text>
+          <Text style={styles.footerBuildText}>ProfPing Student v2.4.1</Text>
         </View>
 
         <View style={{ height: 28 }} />
