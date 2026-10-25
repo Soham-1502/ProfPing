@@ -1,158 +1,271 @@
 'use client';
 
-import React, { useMemo } from 'react';
-import RoleGuard from '../../src/components/RoleGuard';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../src/hooks/useAuth';
-import { useRouter } from 'next/navigation';
-import { getScopedFaculty } from '../../src/lib/dashboardService';
+import { subscribeToDepartmentFaculty } from '../../src/lib/hodService';
 import LiveStatusTable from '../../src/components/LiveStatusTable';
 import DeskHourChart from '../../src/components/DeskHourChart';
-import { STATUS_KEYS } from '@profping/shared';
+import { enrichWithDeskHours } from '../../src/lib/dashboardService';
+import { STATUS_KEYS, STATUS_CONFIG } from '@profping/shared';
+import { Activity, Clock, CheckCircle, AlertTriangle, Radio, Search } from 'lucide-react';
 
-export default function HodDashboardPage() {
-  const { user, department, logout } = useAuth();
-  const router = useRouter();
-
+export default function HodCommandCenterPage() {
+  const { department } = useAuth();
   const effectiveDept = department || 'CMPN';
-  const facultyList = useMemo(() => getScopedFaculty(effectiveDept), [effectiveDept]);
 
-  // Aggregate stats
+  const [rawFaculty, setRawFaculty] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterState, setFilterState] = useState('ALL');
+
+  useEffect(() => {
+    setLoading(true);
+    // Realtime Firebase snapshot listener
+    const unsubscribe = subscribeToDepartmentFaculty(effectiveDept, (list) => {
+      setRawFaculty(list);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [effectiveDept]);
+
+  // Enrich with desk hour analytics
+  const facultyList = useMemo(() => {
+    return enrichWithDeskHours(rawFaculty);
+  }, [rawFaculty]);
+
+  // Aggregate metrics
   const stats = useMemo(() => {
     let available = 0;
     let inLecture = 0;
+    let busy = 0;
+    let offCampus = 0;
     let compliant = 0;
+
     facultyList.forEach((f) => {
-      if (f.status?.state === STATUS_KEYS.AVAILABLE) available++;
-      if (f.status?.state === STATUS_KEYS.IN_LECTURE) inLecture++;
+      const state = f.status?.state || STATUS_KEYS.OFF_CAMPUS;
+      if (state === STATUS_KEYS.AVAILABLE) available++;
+      else if (state === STATUS_KEYS.IN_LECTURE) inLecture++;
+      else if (state === STATUS_KEYS.BUSY) busy++;
+      else offCampus++;
+
       if (f.compliance === 'COMPLIANT') compliant++;
     });
+
+    const total = facultyList.length;
     return {
-      total: facultyList.length,
+      total,
       available,
       inLecture,
+      busy,
+      offCampus,
       compliant,
-      rate: facultyList.length ? Math.round((compliant / facultyList.length) * 100) : 0,
+      rate: total ? Math.round((compliant / total) * 100) : 0,
     };
   }, [facultyList]);
 
-  const handleLogout = async () => {
-    await logout();
-    router.push('/login');
-  };
+  // Filtered list for table
+  const filteredList = useMemo(() => {
+    return facultyList.filter((f) => {
+      const matchesSearch =
+        (f.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.cabin || '').toLowerCase().includes(searchQuery.toLowerCase());
+
+      const state = f.status?.state || STATUS_KEYS.OFF_CAMPUS;
+      const matchesFilter = filterState === 'ALL' || state === filterState;
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [facultyList, searchQuery, filterState]);
 
   return (
-    <RoleGuard allowedRoles={['hod']}>
+    <div>
+      {/* Live Indicator Banner */}
       <div style={{
-        minHeight: '100vh',
-        backgroundColor: '#090d16',
-        color: '#f8fafc',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #C8C5D3',
+        borderRadius: '16px',
+        boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+        padding: '16px 22px',
+        marginBottom: '24px',
+        flexWrap: 'wrap',
+        gap: '12px',
       }}>
-        {/* Navigation Bar */}
-        <nav style={{
-          backgroundColor: '#0f172a',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          padding: '16px 28px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{
-              backgroundColor: '#3b82f6',
-              color: '#ffffff',
-              fontWeight: 800,
-              fontSize: '16px',
-              padding: '6px 10px',
-              borderRadius: '8px',
-            }}>
-              ProfPing
-            </span>
-            <div>
-              <h1 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                HOD Portal — Department of {effectiveDept}
-              </h1>
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                Department-scoped live telemetry & desk-hour compliance
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              color: '#38bdf8',
-              border: '1px solid rgba(59, 130, 246, 0.2)',
-              fontSize: '12px',
-              fontWeight: 600,
-              padding: '4px 10px',
-              borderRadius: '6px',
-            }}>
-              Role: HOD ({effectiveDept})
-            </span>
-            <span style={{ fontSize: '13px', color: '#cbd5e1' }}>
-              {user?.email}
-            </span>
-            <button
-              onClick={handleLogout}
-              style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#ffffff',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              Sign Out
-            </button>
-          </div>
-        </nav>
-
-        {/* Content Body */}
-        <main style={{ maxWidth: '1240px', margin: '32px auto', padding: '0 24px' }}>
-          {/* Summary Stat Cards */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: '16px',
-            marginBottom: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: '#DCFCE7',
+            color: '#14532D',
+            border: '1px solid rgba(21, 128, 61, 0.3)',
+            padding: '5px 12px',
+            borderRadius: '9999px',
+            fontSize: '12px',
+            fontWeight: 700,
           }}>
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Department Faculty</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#ffffff' }}>{stats.total}</div>
-              <span style={{ fontSize: '11px', color: '#38bdf8' }}>Scaped to {effectiveDept} only</span>
-            </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Available at Desk</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#10b981' }}>{stats.available}</div>
-              <span style={{ fontSize: '11px', color: '#10b981' }}>Consultation active</span>
-            </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>In Lecture / Lab</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#3b82f6' }}>{stats.inLecture}</div>
-              <span style={{ fontSize: '11px', color: '#3b82f6' }}>Active teaching session</span>
-            </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Desk-Hour Compliance</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#f59e0b' }}>{stats.rate}%</div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>{stats.compliant} of {stats.total} met target (≥3h)</span>
-            </div>
+            <Radio size={14} className="animate-pulse" />
+            LIVE FIREBASE STREAM ACTIVE
           </div>
+          <span style={{ fontSize: '13px', color: '#4B4757' }}>
+            Broadcaster updates from faculty mobile phones reflect here automatically with zero reload.
+          </span>
+        </div>
 
-          {/* Recharts Duration Analytics Chart */}
-          <DeskHourChart facultyList={facultyList} title={`${effectiveDept} Faculty Desk-Hour Analysis`} />
-
-          {/* Live Status Table */}
-          <LiveStatusTable facultyList={facultyList} title={`${effectiveDept} Faculty Live Roster`} />
-        </main>
+        <div style={{ fontSize: '12px', color: '#777585' }}>
+          Last synced: Just now
+        </div>
       </div>
-    </RoleGuard>
+
+      {/* Summary KPI Cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+        gap: '16px',
+        marginBottom: '24px',
+      }}>
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          padding: '20px',
+          borderRadius: '16px',
+          border: '1px solid #C8C5D3',
+          boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+        }}>
+          <span style={{ fontSize: '12px', color: '#4B4757', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Total Department Faculty</span>
+          <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#1A191F' }}>{stats.total}</div>
+          <span style={{ fontSize: '12px', color: '#492FB1', fontWeight: 600 }}>Dept. of {effectiveDept} roster</span>
+        </div>
+
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          padding: '20px',
+          borderRadius: '16px',
+          border: '1px solid rgba(21, 128, 61, 0.3)',
+          boxShadow: '0 4px 20px -2px rgba(21, 128, 61, 0.05)',
+        }}>
+          <span style={{ fontSize: '12px', color: '#15803D', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>🟢 Available at Desk</span>
+          <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#15803D' }}>{stats.available}</div>
+          <span style={{ fontSize: '12px', color: '#4B4757' }}>Open for student consultation</span>
+        </div>
+
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          padding: '20px',
+          borderRadius: '16px',
+          border: '1px solid rgba(37, 99, 235, 0.3)',
+          boxShadow: '0 4px 20px -2px rgba(37, 99, 235, 0.05)',
+        }}>
+          <span style={{ fontSize: '12px', color: '#2563EB', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>🔵 In Lecture / Lab</span>
+          <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#2563EB' }}>{stats.inLecture}</div>
+          <span style={{ fontSize: '12px', color: '#4B4757' }}>Active classroom teaching</span>
+        </div>
+
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          padding: '20px',
+          borderRadius: '16px',
+          border: '1px solid rgba(180, 83, 9, 0.3)',
+          boxShadow: '0 4px 20px -2px rgba(180, 83, 9, 0.05)',
+        }}>
+          <span style={{ fontSize: '12px', color: '#B45309', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>🟡 Busy / Meeting</span>
+          <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#B45309' }}>{stats.busy}</div>
+          <span style={{ fontSize: '12px', color: '#4B4757' }}>In cabin / committee work</span>
+        </div>
+
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          padding: '20px',
+          borderRadius: '16px',
+          border: '1px solid rgba(220, 38, 38, 0.3)',
+          boxShadow: '0 4px 20px -2px rgba(220, 38, 38, 0.05)',
+        }}>
+          <span style={{ fontSize: '12px', color: '#DC2626', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>🔴 Off Campus</span>
+          <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#DC2626' }}>{stats.offCampus}</div>
+          <span style={{ fontSize: '12px', color: '#4B4757' }}>Away from institution</span>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #C8C5D3',
+        borderRadius: '16px',
+        boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+        padding: '14px 20px',
+        marginBottom: '20px',
+        flexWrap: 'wrap',
+        gap: '14px',
+      }}>
+        <div style={{ position: 'relative', minWidth: '280px', flex: '1' }}>
+          <Search size={16} color="#777585" style={{ position: 'absolute', left: '16px', top: '12px' }} />
+          <input
+            type="text"
+            placeholder="Search faculty name, cabin room, or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              backgroundColor: '#F4F2FA',
+              border: '1px solid #C8C5D3',
+              borderRadius: '9999px',
+              padding: '10px 16px 10px 42px',
+              color: '#1A191F',
+              fontSize: '13px',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {[
+            { label: 'All Statuses', val: 'ALL' },
+            { label: 'Available', val: STATUS_KEYS.AVAILABLE },
+            { label: 'In Lecture', val: STATUS_KEYS.IN_LECTURE },
+            { label: 'Busy', val: STATUS_KEYS.BUSY },
+            { label: 'Off Campus', val: STATUS_KEYS.OFF_CAMPUS },
+          ].map((pill) => {
+            const isActive = filterState === pill.val;
+            return (
+              <button
+                key={pill.val}
+                onClick={() => setFilterState(pill.val)}
+                style={{
+                  backgroundColor: isActive ? '#492FB1' : '#F4F2FA',
+                  color: isActive ? '#FFFFFF' : '#4B4757',
+                  border: `1px solid ${isActive ? '#492FB1' : '#C8C5D3'}`,
+                  padding: '8px 16px',
+                  borderRadius: '9999px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {pill.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Visual Analytics Chart */}
+      <div style={{ marginBottom: '24px' }}>
+        <DeskHourChart facultyList={facultyList} title={`${effectiveDept} Faculty Desk-Hour Analysis (Live)`} />
+      </div>
+
+      {/* Realtime Live Status Table */}
+      <LiveStatusTable
+        facultyList={filteredList}
+        title={`${effectiveDept} Department Live Faculty Roster (${filteredList.length} of ${stats.total})`}
+      />
+    </div>
   );
 }

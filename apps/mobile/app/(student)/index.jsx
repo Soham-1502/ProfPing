@@ -25,6 +25,7 @@ import {
 import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_KEYS } from '@profping/shared';
 import { subscribeToLiveDirectory } from '../../src/services/directoryService';
+import { getStarredFacultyUids, toggleStarredFacultyUid } from '../../src/services/favoritesStorage';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 
 // ── Status Config Matching Campus Clarity Design System ──────────────────────
@@ -37,7 +38,7 @@ const BADGE_MAP = {
     icon: 'check-circle',
   },
   busy: {
-    label: 'Busy (DND)',
+    label: 'Busy',
     dotColor: '#F59E0B',
     badgeBg: '#FEF3C7',
     badgeText: '#B45309',
@@ -58,6 +59,38 @@ const BADGE_MAP = {
     icon: 'times-circle',
   },
 };
+
+// Relative time calculation & staleness helper (>60 min is stale)
+function getFacultyUpdatedInfo(fac) {
+  const ts = fac?.status?.updatedAt || fac?.updatedAt || fac?.timestamp;
+  if (!ts) {
+    return { text: 'Updated recently', isStale: false };
+  }
+  const timestamp = typeof ts === 'number' ? ts : Date.parse(ts);
+  if (!timestamp || isNaN(timestamp)) {
+    return { text: 'Updated recently', isStale: false };
+  }
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHrs = Math.floor(diffMin / 60);
+
+  const isStale = diffMin >= 60;
+
+  if (diffMin < 1) {
+    return { text: 'Updated just now', isStale: false };
+  } else if (diffMin === 1) {
+    return { text: 'Updated 1 min ago', isStale: false };
+  } else if (diffMin < 60) {
+    return { text: `Updated ${diffMin} min ago`, isStale: false };
+  } else if (diffHrs === 1) {
+    return { text: 'Updated 1 hr ago', isStale: true };
+  } else if (diffHrs < 24) {
+    return { text: `Updated ${diffHrs} hrs ago`, isStale: true };
+  } else {
+    const diffDays = Math.floor(diffHrs / 24);
+    return { text: `Updated ${diffDays}d ago`, isStale: true };
+  }
+}
 
 export default function StudentHomeScreen() {
   const [fontsLoaded] = useFonts({
@@ -82,15 +115,17 @@ export default function StudentHomeScreen() {
     }
   }, [params?.filter]);
 
-  const [starredUids, setStarredUids] = useState(
-    new Set(['demo-faculty-ecs-01', 'demo-faculty-ecs-02', 'demo-faculty-cmpn-04', 'demo-faculty-robotics-01'])
-  );
+  const [starredUids, setStarredUids] = useState(new Set());
 
-  // Modal & interaction states
-  const [pingModalFaculty, setPingModalFaculty] = useState(null);
-  const [pingReason, setPingReason] = useState('Doubt in Assignment');
-  const [pingSuccess, setPingSuccess] = useState(false);
-  const [queuedUids, setQueuedUids] = useState(new Set());
+  // Load persistent student starred faculty
+  useEffect(() => {
+    getStarredFacultyUids().then((set) => setStarredUids(set));
+  }, []);
+
+  const handleToggleStar = async (facUid) => {
+    const updated = await toggleStarredFacultyUid(facUid);
+    setStarredUids(new Set(updated));
+  };
 
   // Subscribe to live directory
   useEffect(() => {
@@ -135,30 +170,19 @@ export default function StudentHomeScreen() {
     });
   }, [facultyList, activeFilter, searchQuery, starredUids]);
 
-  const handlePingSubmit = () => {
-    setPingSuccess(true);
-    setTimeout(() => {
-      setPingSuccess(false);
-      setPingModalFaculty(null);
-    }, 1400);
-  };
+  // Dynamic Available Count
+  const availableCount = useMemo(() => {
+    return facultyList.filter(
+      (fac) => (fac.status?.state || '').toLowerCase() === STATUS_KEYS.AVAILABLE
+    ).length;
+  }, [facultyList]);
 
-  const handleNotifyQueue = (fac) => {
-    setQueuedUids((prev) => {
-      const next = new Set(prev);
-      if (next.has(fac.uid)) {
-        next.delete(fac.uid);
-        Alert.alert('Queue Cancelled', `You removed auto-alert for ${fac.name}.`);
-      } else {
-        next.add(fac.uid);
-        Alert.alert(
-          'Auto-Alert Queued 🔔',
-          `You will be notified via institutional push notification the moment ${fac.name} changes status to Available.`
-        );
-      }
-      return next;
-    });
-  };
+  // Starred Faculty List
+  const starredFacultyList = useMemo(() => {
+    return facultyList.filter((f) => starredUids.has(f.uid));
+  }, [facultyList, starredUids]);
+
+
 
   if (!fontsLoaded) {
     return (
@@ -185,18 +209,8 @@ export default function StudentHomeScreen() {
           </View>
         </View>
 
-        {/* Top Header Right Icons */}
-        <View style={styles.topHeaderRight}>
-          <TouchableOpacity
-            style={styles.headerActionBtn}
-            onPress={() =>
-              Alert.alert('Notifications', 'No urgent broadcast alerts at this time.')
-            }
-          >
-            <FontAwesome5 name="bell" size={15} color="#334155" />
-            <View style={styles.unreadDot} />
-          </TouchableOpacity>
-        </View>
+        {/* Top Header Right */}
+        <View style={styles.topHeaderRight} />
       </View>
 
       <ScrollView
@@ -272,99 +286,55 @@ export default function StudentHomeScreen() {
               <FontAwesome5 name="star" size={11} color="#F59E0B" style={{ marginRight: 6 }} />
               <Text style={styles.starredHeaderTitle}>STARRED FACULTY</Text>
             </View>
-            <TouchableOpacity onPress={() => setActiveFilter('STARRED')}>
-              <Text style={styles.manageLink}>Manage ({starredUids.size})</Text>
-            </TouchableOpacity>
+            {starredFacultyList.length > 0 && (
+              <TouchableOpacity onPress={() => setActiveFilter('STARRED')}>
+                <Text style={styles.manageLink}>Manage ({starredFacultyList.length})</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.starredListContent}
-          >
-            {/* Dr. Mehta (Real Photo) */}
-            <TouchableOpacity
-              style={styles.starredCard}
-              onPress={() => {
-                const fac = facultyList.find((f) => f.uid === 'demo-faculty-ecs-01');
-                if (fac) setPingModalFaculty(fac);
-              }}
-              activeOpacity={0.8}
+          {starredFacultyList.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.starredListContent}
             >
-              <View style={styles.photoAvatarRing}>
-                <Image
-                  source={require('../../assets/faculty-anjali.jpg')}
-                  style={styles.starredPhoto}
-                />
-                <View style={[styles.avatarStatusBadge, { backgroundColor: '#16A34A' }]} />
-              </View>
-              <Text style={styles.starredCardName}>Dr. Mehta</Text>
-              <Text style={styles.starredCardDept}>ECS</Text>
-            </TouchableOpacity>
-
-            {/* Prof. Arjun */}
-            <TouchableOpacity
-              style={styles.starredCard}
-              onPress={() => {
-                const fac = facultyList.find((f) => f.uid === 'demo-faculty-ecs-02');
-                if (fac) setPingModalFaculty(fac);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={styles.initialsAvatar}>
-                <Text style={styles.initialsText}>AK</Text>
-                <View style={[styles.avatarStatusBadge, { backgroundColor: '#F59E0B' }]} />
-              </View>
-              <Text style={styles.starredCardName}>Prof. Arjun</Text>
-              <Text style={styles.starredCardDept}>ECS</Text>
-            </TouchableOpacity>
-
-            {/* Prof. Patil */}
-            <TouchableOpacity
-              style={styles.starredCard}
-              onPress={() => {
-                const fac = facultyList.find((f) => f.uid === 'demo-faculty-cmpn-04');
-                if (fac) setPingModalFaculty(fac);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={styles.initialsAvatar}>
-                <Text style={styles.initialsText}>RP</Text>
-                <View style={[styles.avatarStatusBadge, { backgroundColor: '#2563EB' }]} />
-              </View>
-              <Text style={styles.starredCardName}>Prof. Patil</Text>
-              <Text style={styles.starredCardDept}>CS</Text>
-            </TouchableOpacity>
-
-            {/* Dr. Sunita */}
-            <TouchableOpacity
-              style={styles.starredCard}
-              onPress={() => {
-                const fac = facultyList.find((f) => f.uid === 'demo-faculty-robotics-01');
-                if (fac) setPingModalFaculty(fac);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={styles.initialsAvatar}>
-                <Text style={styles.initialsText}>SP</Text>
-                <View style={[styles.avatarStatusBadge, { backgroundColor: '#2563EB' }]} />
-              </View>
-              <Text style={styles.starredCardName}>Dr. Sunita</Text>
-              <Text style={styles.starredCardDept}>Robotics</Text>
-            </TouchableOpacity>
-
-            {/* Add New Dashed Circle */}
-            <TouchableOpacity
-              style={styles.starredCard}
-              onPress={() => setActiveFilter('ALL')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.addStarredCircle}>
-                <FontAwesome5 name="plus" size={14} color="#94A3B8" />
-              </View>
-              <Text style={styles.addStarredText}>Add New</Text>
-            </TouchableOpacity>
-          </ScrollView>
+              {starredFacultyList.map((fac) => {
+                const initials = (fac.name || 'Faculty')
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((p) => p[0].toUpperCase())
+                  .join('');
+                const state = fac.status?.state || STATUS_KEYS.AVAILABLE;
+                const badge = BADGE_MAP[state] || BADGE_MAP.available;
+                return (
+                  <TouchableOpacity
+                    key={fac.uid}
+                    style={styles.starredCard}
+                    onPress={() => setSearchQuery(fac.name || '')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.initialsAvatar}>
+                      <Text style={styles.initialsText}>{initials}</Text>
+                      <View style={[styles.avatarStatusBadge, { backgroundColor: badge.dotColor }]} />
+                    </View>
+                    <Text style={styles.starredCardName} numberOfLines={1}>
+                      {fac.name}
+                    </Text>
+                    <Text style={styles.starredCardDept}>
+                      {fac.department || 'SFIT'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : (
+            <View style={styles.starredEmptyCard}>
+              <FontAwesome5 name="star" size={12} color="#CBD5E1" style={{ marginRight: 8 }} />
+              <Text style={styles.starredEmptyText}>No starred faculty</Text>
+            </View>
+          )}
         </View>
 
         {/* ── 5. LIVE FACULTY DIRECTORY HEADER ────────────────────────── */}
@@ -372,7 +342,7 @@ export default function StudentHomeScreen() {
           <View style={styles.directoryHeaderLeft}>
             <Text style={styles.directoryHeading}>LIVE FACULTY DIRECTORY</Text>
             <View style={styles.availableBadge}>
-              <Text style={styles.availableBadgeText}>32 Available</Text>
+              <Text style={styles.availableBadgeText}>{availableCount} Available</Text>
             </View>
           </View>
 
@@ -398,67 +368,88 @@ export default function StudentHomeScreen() {
 
         {/* ── 6. FACULTY CARDS ────────────────────────────────────────── */}
         <View style={styles.facultyCardsList}>
-          {filteredList.map((fac) => {
-            const state = fac.status?.state || STATUS_KEYS.AVAILABLE;
-            const badge = BADGE_MAP[state] || BADGE_MAP.available;
-            const isQueued = queuedUids.has(fac.uid);
+          {filteredList.length === 0 ? (
+            <View style={styles.emptyFacultyBox}>
+              <FontAwesome5 name="user-friends" size={24} color="#94A3B8" style={{ marginBottom: 10 }} />
+              <Text style={styles.emptyFacultyTitle}>No Faculty Registered</Text>
+              <Text style={styles.emptyFacultySub}>
+                {facultyList.length === 0
+                  ? "Faculty members added by department HODs will appear here in real-time."
+                  : "No faculty members match your selected department or search filter."}
+              </Text>
+            </View>
+          ) : (
+            filteredList.map((fac) => {
+              const state = fac.status?.state || STATUS_KEYS.AVAILABLE;
+              const badge = BADGE_MAP[state] || BADGE_MAP.available;
+              const isStarred = starredUids.has(fac.uid);
+              const updatedInfo = getFacultyUpdatedInfo(fac);
 
-            return (
-              <View key={fac.uid} style={styles.facultyCard}>
-                {/* Header Row: Avatar + Name/Role + Status Badge */}
-                <View style={styles.cardHeaderRow}>
-                  {/* Avatar */}
-                  <View style={styles.cardAvatarWrapper}>
-                    {fac.photo ? (
-                      <Image
-                        source={require('../../assets/faculty-anjali.jpg')}
-                        style={styles.cardAvatarPhoto}
-                      />
-                    ) : (
+              return (
+                <View key={fac.uid} style={styles.facultyCard}>
+                  {/* Header Row: Avatar + Name/Role + Star Button + Status Badge */}
+                  <View style={styles.cardHeaderRow}>
+                    {/* Avatar */}
+                    <View style={styles.cardAvatarWrapper}>
                       <View style={styles.cardAvatarPlaceholder}>
                         <Text style={styles.cardAvatarPlaceholderText}>
-                          {fac.name
+                          {(fac.name || 'F')
                             .split(' ')
+                            .filter(Boolean)
                             .map((p) => p[0])
                             .slice(0, 2)
                             .join('')}
                         </Text>
                       </View>
-                    )}
-                    <View style={[styles.cardStatusDot, { backgroundColor: badge.dotColor }]} />
-                  </View>
-
-                  {/* Name & Role */}
-                  <View style={styles.cardInfoCol}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.facultyNameText}>{fac.name}</Text>
-                      {fac.isVerified && (
-                        <MaterialCommunityIcons
-                          name="check-decagram"
-                          size={15}
-                          color="#4326B6"
-                          style={{ marginLeft: 5 }}
-                        />
-                      )}
+                      <View style={[styles.cardStatusDot, { backgroundColor: badge.dotColor }]} />
                     </View>
-                    <Text style={styles.facultyRoleText}>
-                      {fac.designation || 'Faculty'}
-                    </Text>
-                  </View>
 
-                  {/* Status Badge */}
-                  <View style={[styles.statusTag, { backgroundColor: badge.badgeBg }]}>
-                    <FontAwesome5
-                      name={badge.icon}
-                      size={10}
-                      color={badge.badgeText}
-                      style={{ marginRight: 5 }}
-                    />
-                    <Text style={[styles.statusTagText, { color: badge.badgeText }]}>
-                      {badge.label}
-                    </Text>
+                    {/* Name & Role */}
+                    <View style={styles.cardInfoCol}>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.facultyNameText}>{fac.name}</Text>
+                        {fac.isVerified && (
+                          <MaterialCommunityIcons
+                            name="check-decagram"
+                            size={15}
+                            color="#4326B6"
+                            style={{ marginLeft: 5 }}
+                          />
+                        )}
+                      </View>
+                      <Text style={styles.facultyRoleText}>
+                        {fac.designation || 'Faculty'} • {fac.department || 'SFIT'}
+                      </Text>
+                    </View>
+
+                    {/* Star Toggle Button */}
+                    <TouchableOpacity
+                      style={styles.starToggleBtn}
+                      onPress={() => handleToggleStar(fac.uid)}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <FontAwesome5
+                        name="star"
+                        solid={isStarred}
+                        size={15}
+                        color={isStarred ? '#F59E0B' : '#CBD5E1'}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Status Badge */}
+                    <View style={[styles.statusTag, { backgroundColor: badge.badgeBg }]}>
+                      <FontAwesome5
+                        name={badge.icon}
+                        size={10}
+                        color={badge.badgeText}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.statusTagText, { color: badge.badgeText }]}>
+                        {badge.label}
+                      </Text>
+                    </View>
                   </View>
-                </View>
 
                 {/* Status Message Line */}
                 {fac.status?.message ? (
@@ -474,7 +465,7 @@ export default function StudentHomeScreen() {
                   </Text>
                 ) : null}
 
-                {/* Footer Action Row */}
+                {/* Card Location & Last Updated Footer Row */}
                 <View style={styles.cardFooterRow}>
                   {/* Left Location Info */}
                   <View style={styles.cardLocationLeft}>
@@ -490,142 +481,28 @@ export default function StudentHomeScreen() {
                         fac.lectureRoom && { color: '#2563EB' },
                       ]}
                     >
-                      {fac.lectureRoom || fac.cabin || `${fac.department} Dept Cabin`}
+                      {fac.lectureRoom || fac.cabin || `${fac.department || 'SFIT'} Cabin`}
                     </Text>
                   </View>
 
-                  {/* Right Button */}
-                  {state === STATUS_KEYS.AVAILABLE ? (
-                    <TouchableOpacity
-                      style={styles.pingFacultyBtn}
-                      onPress={() => setPingModalFaculty(fac)}
-                      activeOpacity={0.88}
-                    >
-                      <FontAwesome5
-                        name="bell"
-                        size={11}
-                        color="#FFFFFF"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.pingFacultyBtnText}>Ping Faculty</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={[
-                        styles.notifyBtn,
-                        isQueued && styles.notifyBtnActive,
-                      ]}
-                      onPress={() => handleNotifyQueue(fac)}
-                      activeOpacity={0.88}
-                    >
-                      <FontAwesome5
-                        name="bell"
-                        size={11}
-                        color={isQueued ? '#FFFFFF' : '#4326B6'}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text
-                        style={[
-                          styles.notifyBtnText,
-                          isQueued && { color: '#FFFFFF' },
-                        ]}
-                      >
-                        {isQueued ? 'Alert Set ✔' : 'Notify When Free'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                  {/* Right: Updated X min ago + Stale Tag */}
+                  <View style={styles.timeStaleContainer}>
+                    <Text style={styles.updatedTimeText}>{updatedInfo.text}</Text>
+                    {updatedInfo.isStale && (
+                      <View style={styles.staleTag}>
+                        <FontAwesome5 name="history" size={8.5} color="#B45309" style={{ marginRight: 3 }} />
+                        <Text style={styles.staleTagText}>Stale</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
             );
-          })}
+          }))}
         </View>
 
         <View style={{ height: 110 }} />
       </ScrollView>
-
-      {/* ── PING MODAL ──────────────────────────────────────────────── */}
-      {pingModalFaculty && (
-        <Modal
-          visible
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPingModalFaculty(null)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={styles.pingSheetCard}>
-              <View style={styles.pingSheetHeader}>
-                <View style={styles.pingShieldIcon}>
-                  <FontAwesome5 name="bell" size={18} color="#FFFFFF" />
-                </View>
-                <Text style={styles.pingSheetTitle}>Ping {pingModalFaculty.name}</Text>
-                <Text style={styles.pingSheetSubtitle}>
-                  Location: {pingModalFaculty.cabin || 'Hall No. 301 • Table 1'}
-                </Text>
-              </View>
-
-              {pingSuccess ? (
-                <View style={styles.pingSuccessBox}>
-                  <FontAwesome5 name="check-circle" size={32} color="#15803D" />
-                  <Text style={styles.pingSuccessText}>Ping Sent Successfully!</Text>
-                  <Text style={styles.pingSuccessSub}>
-                    {pingModalFaculty.name} has been notified on their desktop and phone broadcast.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.reasonLabel}>Select reason for visit:</Text>
-                  {[
-                    'Doubt in Assignment / Lab',
-                    'Project Guidance & Sign-off',
-                    'Recommendation Letter / Inquiry',
-                    'Quick 2-minute query',
-                  ].map((r) => (
-                    <TouchableOpacity
-                      key={r}
-                      style={[
-                        styles.reasonChip,
-                        pingReason === r && styles.reasonChipSelected,
-                      ]}
-                      onPress={() => setPingReason(r)}
-                    >
-                      <FontAwesome5
-                        name={pingReason === r ? 'dot-circle' : 'circle'}
-                        size={13}
-                        color={pingReason === r ? '#4326B6' : '#94A3B8'}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text
-                        style={[
-                          styles.reasonText,
-                          pingReason === r && styles.reasonTextSelected,
-                        ]}
-                      >
-                        {r}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-
-                  <View style={styles.pingActionRow}>
-                    <TouchableOpacity
-                      style={styles.pingCancelBtn}
-                      onPress={() => setPingModalFaculty(null)}
-                    >
-                      <Text style={styles.pingCancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.pingConfirmBtn}
-                      onPress={handlePingSubmit}
-                    >
-                      <Text style={styles.pingConfirmBtnText}>Send Ping 🔔</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
-            </View>
-          </View>
-        </Modal>
-      )}
     </View>
   );
 }
@@ -874,6 +751,52 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
   },
+  starredEmptyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    justifyContent: 'center',
+  },
+  starredEmptyText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.5,
+    color: '#94A3B8',
+  },
+  starToggleBtn: {
+    padding: 6,
+    marginRight: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyFacultyBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyFacultyTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    color: '#1A191F',
+    marginBottom: 6,
+  },
+  emptyFacultySub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280,
+  },
 
   // ── 5. Live Faculty Directory Header ───────────────────────────────────────
   directoryHeader: {
@@ -1034,165 +957,30 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: '#334155',
   },
-  pingFacultyBtn: {
-    backgroundColor: '#4326B6',
-    borderRadius: 9999,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  timeStaleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#4326B6',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
+    gap: 6,
   },
-  pingFacultyBtnText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  notifyBtn: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#4326B6',
-    borderRadius: 9999,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  notifyBtnActive: {
-    backgroundColor: '#4326B6',
-  },
-  notifyBtnText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 12,
-    color: '#4326B6',
-  },
-
-  // ── MODAL BACKDROP & PING MODAL ────────────────────────────────────────────
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  pingSheetCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    width: '100%',
-    maxWidth: 380,
-    padding: 22,
-    shadowColor: '#1A191F',
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  pingSheetHeader: {
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  pingShieldIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#4326B6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  pingSheetTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 17,
-    color: '#1A191F',
-    textAlign: 'center',
-  },
-  pingSheetSubtitle: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  reasonLabel: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: '#334155',
-    marginBottom: 10,
-  },
-  reasonChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  reasonChipSelected: {
-    borderColor: '#4326B6',
-    backgroundColor: '#F5F3FF',
-  },
-  reasonText: {
+  updatedTimeText: {
     fontFamily: 'Inter_500Medium',
-    fontSize: 12.5,
-    color: '#334155',
+    fontSize: 11,
+    color: '#64748B',
   },
-  reasonTextSelected: {
-    fontFamily: 'Inter_700Bold',
-    color: '#4326B6',
-  },
-  pingActionRow: {
+  staleTag: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  pingCancelBtn: {
-    flex: 1,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    paddingVertical: 12,
     alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  pingCancelBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 13,
-    color: '#64748B',
-  },
-  pingConfirmBtn: {
-    flex: 1.5,
-    backgroundColor: '#4326B6',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  pingConfirmBtnText: {
+  staleTagText: {
     fontFamily: 'Inter_700Bold',
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-  pingSuccessBox: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  pingSuccessText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 16,
-    color: '#15803D',
-    marginTop: 12,
-  },
-  pingSuccessSub: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: '#64748B',
-    textAlign: 'center',
-    marginTop: 4,
-    paddingHorizontal: 16,
+    fontSize: 9.5,
+    color: '#B45309',
+    letterSpacing: 0.3,
   },
 });

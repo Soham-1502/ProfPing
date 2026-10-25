@@ -22,21 +22,21 @@ export default function RoleGuard({ allowedRoles = [], children }) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#090d16',
-        color: '#94a3b8',
-        fontFamily: 'system-ui, sans-serif',
+        backgroundColor: '#FAF8FE',
+        color: '#4B4757',
+        fontFamily: 'inherit',
       }}>
         <div style={{
-          width: '36px',
-          height: '36px',
-          border: '3px solid rgba(59, 130, 246, 0.2)',
-          borderTopColor: '#3b82f6',
+          width: '38px',
+          height: '38px',
+          border: '3px solid #E0D8FD',
+          borderTopColor: '#492FB1',
           borderRadius: '50%',
           animation: 'spin 0.8s linear infinite',
           marginBottom: '16px',
         }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        <p style={{ fontSize: '14px', letterSpacing: '0.5px' }}>Verifying Institutional RBAC Session...</p>
+        <p style={{ fontSize: '14px', letterSpacing: '0.2px', fontWeight: 600 }}>Verifying Institutional RBAC Session...</p>
       </div>
     );
   }
@@ -52,29 +52,29 @@ export default function RoleGuard({ allowedRoles = [], children }) {
     return (
       <div style={{
         minHeight: '100vh',
-        backgroundColor: '#090d16',
+        backgroundColor: '#FAF8FE',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '24px',
-        fontFamily: 'system-ui, sans-serif',
+        fontFamily: 'inherit',
       }}>
         <div style={{
           maxWidth: '480px',
           width: '100%',
-          backgroundColor: '#0f172a',
-          border: '1px solid rgba(239, 68, 68, 0.3)',
+          backgroundColor: '#FFFFFF',
+          border: '1px solid #C8C5D3',
           borderRadius: '16px',
-          padding: '32px',
+          padding: '36px',
           textAlign: 'center',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+          boxShadow: '0 20px 25px -5px rgba(25, 13, 74, 0.08)',
         }}>
           <div style={{
             width: '48px',
             height: '48px',
             borderRadius: '50%',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            color: '#ef4444',
+            backgroundColor: '#FEE2E2',
+            color: '#DC2626',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -84,36 +84,37 @@ export default function RoleGuard({ allowedRoles = [], children }) {
           }}>
             ✕
           </div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginBottom: '8px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#1A191F', marginBottom: '8px' }}>
             Access Restricted
           </h2>
-          <p style={{ fontSize: '14px', color: '#94a3b8', lineHeight: '1.5', marginBottom: '20px' }}>
-            Your account (<strong style={{ color: '#cbd5e1' }}>{user.email}</strong>) has the role{' '}
+          <p style={{ fontSize: '13.5px', color: '#4B4757', lineHeight: '1.5', marginBottom: '24px' }}>
+            Your account (<strong style={{ color: '#1A191F' }}>{user.email}</strong>) has the role{' '}
             <span style={{
-              color: '#38bdf8',
-              backgroundColor: 'rgba(56, 189, 248, 0.1)',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontWeight: 600,
+              color: '#190D4A',
+              backgroundColor: '#E0D8FD',
+              padding: '3px 10px',
+              borderRadius: '9999px',
+              fontWeight: 700,
             }}>
               {role || 'unassigned'}
             </span>
             , but this portal requires{' '}
-            <strong style={{ color: '#f1f5f9' }}>{allowedRoles.join(' or ')}</strong> access.
+            <strong style={{ color: '#1A191F' }}>{allowedRoles.join(' or ')}</strong> access.
           </p>
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => router.push(role === 'hod' ? '/hod' : role === 'principal' ? '/principal' : '/')}
               style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                color: '#ffffff',
-                padding: '10px 18px',
-                borderRadius: '8px',
+                backgroundColor: '#492FB1',
+                border: 'none',
+                color: '#FFFFFF',
+                padding: '10px 20px',
+                borderRadius: '9999px',
                 fontSize: '13px',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(73, 47, 177, 0.2)',
               }}
             >
               Go to Your Portal
@@ -124,13 +125,13 @@ export default function RoleGuard({ allowedRoles = [], children }) {
                 router.push('/login');
               }}
               style={{
-                backgroundColor: '#ef4444',
-                border: 'none',
-                color: '#ffffff',
-                padding: '10px 18px',
-                borderRadius: '8px',
+                backgroundColor: '#FEE2E2',
+                border: '1px solid rgba(220, 38, 38, 0.25)',
+                color: '#7F1D1D',
+                padding: '10px 20px',
+                borderRadius: '9999px',
                 fontSize: '13px',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
               }}
             >

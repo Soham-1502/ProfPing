@@ -25,6 +25,71 @@ import {
 import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_KEYS } from '@profping/shared';
 import { subscribeToLiveDirectory } from '../../src/services/directoryService';
+import { getStarredFacultyUids, toggleStarredFacultyUid } from '../../src/services/favoritesStorage';
+
+// Status Config Matching Campus Clarity Design System
+const BADGE_MAP = {
+  available: {
+    label: 'Available',
+    dotColor: '#16A34A',
+    badgeBg: '#DCFCE7',
+    badgeText: '#15803D',
+    icon: 'check-circle',
+  },
+  busy: {
+    label: 'Busy',
+    dotColor: '#F59E0B',
+    badgeBg: '#FEF3C7',
+    badgeText: '#B45309',
+    icon: 'clock',
+  },
+  in_lecture: {
+    label: 'In Lecture',
+    dotColor: '#2563EB',
+    badgeBg: '#DBEAFE',
+    badgeText: '#1D4ED8',
+    icon: 'book-open',
+  },
+  off_campus: {
+    label: 'Off Campus',
+    dotColor: '#DC2626',
+    badgeBg: '#FEE2E2',
+    badgeText: '#B91C1C',
+    icon: 'times-circle',
+  },
+};
+
+// Relative time calculation & staleness helper (>60 min is stale)
+function getFacultyUpdatedInfo(fac) {
+  const ts = fac?.status?.updatedAt || fac?.updatedAt || fac?.timestamp;
+  if (!ts) {
+    return { text: 'Updated recently', isStale: false };
+  }
+  const timestamp = typeof ts === 'number' ? ts : Date.parse(ts);
+  if (!timestamp || isNaN(timestamp)) {
+    return { text: 'Updated recently', isStale: false };
+  }
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHrs = Math.floor(diffMin / 60);
+
+  const isStale = diffMin >= 60;
+
+  if (diffMin < 1) {
+    return { text: 'Updated just now', isStale: false };
+  } else if (diffMin === 1) {
+    return { text: 'Updated 1 min ago', isStale: false };
+  } else if (diffMin < 60) {
+    return { text: `Updated ${diffMin} min ago`, isStale: false };
+  } else if (diffHrs === 1) {
+    return { text: 'Updated 1 hr ago', isStale: true };
+  } else if (diffHrs < 24) {
+    return { text: `Updated ${diffHrs} hrs ago`, isStale: true };
+  } else {
+    const diffDays = Math.floor(diffHrs / 24);
+    return { text: `Updated ${diffDays}d ago`, isStale: true };
+  }
+}
 
 export default function StudentFavoritesPage() {
   const [fontsLoaded] = useFonts({
@@ -40,15 +105,12 @@ export default function StudentFavoritesPage() {
 
   const [facultyList, setFacultyList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [starredUids, setStarredUids] = useState(
-    new Set(['demo-faculty-ecs-01', 'demo-faculty-ecs-02', 'demo-faculty-cmpn-04', 'demo-faculty-robotics-01'])
-  );
+  const [starredUids, setStarredUids] = useState(new Set());
 
-  // Ping Modal & notification states
-  const [pingModalFaculty, setPingModalFaculty] = useState(null);
-  const [pingReason, setPingReason] = useState('Doubt in Assignment');
-  const [pingSuccess, setPingSuccess] = useState(false);
-  const [queuedUids, setQueuedUids] = useState(new Set());
+  // Load persistent starred UIDs on mount
+  useEffect(() => {
+    getStarredFacultyUids().then((set) => setStarredUids(set));
+  }, []);
 
   // Subscribe to live Firestore faculty directory
   useEffect(() => {
@@ -73,42 +135,12 @@ export default function StudentFavoritesPage() {
     });
   }, [facultyList, starredUids, searchQuery]);
 
-  const toggleStar = (uid) => {
-    setStarredUids((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) {
-        next.delete(uid);
-      } else {
-        next.add(uid);
-      }
-      return next;
-    });
+  const toggleStar = async (uid) => {
+    const next = await toggleStarredFacultyUid(uid);
+    setStarredUids(new Set(next));
   };
 
-  const handlePingSubmit = () => {
-    setPingSuccess(true);
-    setTimeout(() => {
-      setPingSuccess(false);
-      setPingModalFaculty(null);
-    }, 1400);
-  };
 
-  const handleNotifyQueue = (fac) => {
-    setQueuedUids((prev) => {
-      const next = new Set(prev);
-      if (next.has(fac.uid)) {
-        next.delete(fac.uid);
-        Alert.alert('Alert Removed', `You will no longer be notified when ${fac.name} becomes free.`);
-      } else {
-        next.add(fac.uid);
-        Alert.alert(
-          'Queue Notification Set',
-          `You will receive an instant notification as soon as ${fac.name} marks their status Available.`
-        );
-      }
-      return next;
-    });
-  };
 
   if (!fontsLoaded) {
     return (
@@ -170,7 +202,7 @@ export default function StudentFavoritesPage() {
               <FontAwesome5 name="bookmark" size={28} color="#4326B6" />
             </View>
             <Text style={styles.emptyTitle}>
-              {searchQuery.trim() ? 'No Matching Favorites' : 'No Starred Faculty Yet'}
+              {searchQuery.trim() ? 'No Matching Favorites' : 'No starred faculty'}
             </Text>
             <Text style={styles.emptySubtitle}>
               {searchQuery.trim()
@@ -192,10 +224,9 @@ export default function StudentFavoritesPage() {
         ) : (
           <View style={styles.cardList}>
             {starredFaculty.map((fac) => {
-              const isAvailable = fac.status?.state === 'AVAILABLE';
-              const isInLecture = fac.status?.state === 'IN_LECTURE';
-              const isBusy = fac.status?.state === 'BUSY';
-              const isQueued = queuedUids.has(fac.uid);
+              const rawState = (fac.status?.state || 'available').toLowerCase();
+              const badge = BADGE_MAP[rawState] || BADGE_MAP.available;
+              const updatedInfo = getFacultyUpdatedInfo(fac);
 
               return (
                 <View key={fac.uid} style={styles.facultyCard}>
@@ -221,11 +252,7 @@ export default function StudentFavoritesPage() {
                         style={[
                           styles.statusDot,
                           {
-                            backgroundColor: isAvailable
-                              ? '#15803D'
-                              : isInLecture
-                              ? '#2563EB'
-                              : '#DC2626',
+                            backgroundColor: badge.dotColor,
                           },
                         ]}
                       />
@@ -251,31 +278,25 @@ export default function StudentFavoritesPage() {
                           style={[
                             styles.presencePill,
                             {
-                              backgroundColor: isAvailable
-                                ? '#DCFCE7'
-                                : isInLecture
-                                ? '#DBEAFE'
-                                : '#FEF3C7',
+                              backgroundColor: badge.badgeBg,
                             },
                           ]}
                         >
+                          <FontAwesome5
+                            name={badge.icon}
+                            size={9}
+                            color={badge.badgeText}
+                            style={{ marginRight: 4 }}
+                          />
                           <Text
                             style={[
                               styles.presenceText,
                               {
-                                color: isAvailable
-                                  ? '#15803D'
-                                  : isInLecture
-                                  ? '#1D4ED8'
-                                  : '#B45309',
+                                color: badge.badgeText,
                               },
                             ]}
                           >
-                            {isAvailable
-                              ? 'Available in Cabin'
-                              : isInLecture
-                              ? 'In Lecture'
-                              : 'Busy'}
+                            {badge.label}
                           </Text>
                         </View>
                       </View>
@@ -302,50 +323,25 @@ export default function StudentFavoritesPage() {
                     </View>
                   ) : null}
 
-                  {/* Action Buttons Row */}
+                  {/* Action & Relative Time Row */}
                   <View style={styles.cardActionsRow}>
-                    {isAvailable ? (
-                      <TouchableOpacity
-                        style={styles.primaryPingBtn}
-                        onPress={() => setPingModalFaculty(fac)}
-                        activeOpacity={0.85}
-                      >
-                        <FontAwesome5 name="bell" size={12} color="#FFFFFF" style={{ marginRight: 6 }} />
-                        <Text style={styles.primaryPingBtnText}>Ping Faculty</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={[
-                          styles.notifyWhenFreeBtn,
-                          isQueued && styles.notifyWhenFreeBtnActive,
-                        ]}
-                        onPress={() => handleNotifyQueue(fac)}
-                        activeOpacity={0.85}
-                      >
-                        <FontAwesome5
-                          name={isQueued ? 'check-circle' : 'bell'}
-                          size={12}
-                          color={isQueued ? '#15803D' : '#4326B6'}
-                          style={{ marginRight: 6 }}
-                        />
-                        <Text
-                          style={[
-                            styles.notifyWhenFreeBtnText,
-                            isQueued && styles.notifyWhenFreeBtnTextActive,
-                          ]}
-                        >
-                          {isQueued ? 'Alert Queued ✔' : 'Notify When Free'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.timeStaleContainer}>
+                      <Text style={styles.updatedTimeText}>{updatedInfo.text}</Text>
+                      {updatedInfo.isStale && (
+                        <View style={styles.staleTag}>
+                          <FontAwesome5 name="history" size={8.5} color="#B45309" style={{ marginRight: 3 }} />
+                          <Text style={styles.staleTagText}>Stale</Text>
+                        </View>
+                      )}
+                    </View>
 
                     <TouchableOpacity
                       style={styles.mapShortcutBtn}
                       onPress={() => router.replace('/(student)/maps')}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="map-outline" size={14} color="#4326B6" style={{ marginRight: 4 }} />
-                      <Text style={styles.mapShortcutBtnText}>Locate</Text>
+                      <Ionicons name="business-outline" size={13} color="#4326B6" style={{ marginRight: 4 }} />
+                      <Text style={styles.mapShortcutBtnText}>Cabins</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -357,90 +353,6 @@ export default function StudentFavoritesPage() {
         {/* Bottom breathing space for persistent capsule navbar */}
         <View style={{ height: 110 }} />
       </ScrollView>
-
-      {/* ── PING MODAL ─────────────────────────────────────────────────── */}
-      {pingModalFaculty && (
-        <Modal
-          visible
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPingModalFaculty(null)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={styles.pingSheetCard}>
-              <View style={styles.pingSheetHeader}>
-                <View style={styles.pingShieldIcon}>
-                  <FontAwesome5 name="bell" size={18} color="#FFFFFF" />
-                </View>
-                <Text style={styles.pingSheetTitle}>Ping {pingModalFaculty.name}</Text>
-                <Text style={styles.pingSheetSubtitle}>
-                  Location: {pingModalFaculty.cabin || 'Cabin 304 • SFIT Wing B'}
-                </Text>
-              </View>
-
-              {pingSuccess ? (
-                <View style={styles.pingSuccessBox}>
-                  <FontAwesome5 name="check-circle" size={32} color="#15803D" />
-                  <Text style={styles.pingSuccessText}>Ping Sent Successfully!</Text>
-                  <Text style={styles.pingSuccessSub}>
-                    {pingModalFaculty.name} has been notified on their desktop and phone broadcast.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.reasonLabel}>Select reason for visit:</Text>
-                  {[
-                    'Doubt in Assignment / Lab',
-                    'Project Guidance & Sign-off',
-                    'Recommendation Letter / Inquiry',
-                    'Quick 2-minute query',
-                  ].map((r) => (
-                    <TouchableOpacity
-                      key={r}
-                      style={[
-                        styles.reasonChip,
-                        pingReason === r && styles.reasonChipSelected,
-                      ]}
-                      onPress={() => setPingReason(r)}
-                    >
-                      <FontAwesome5
-                        name={pingReason === r ? 'dot-circle' : 'circle'}
-                        size={13}
-                        color={pingReason === r ? '#4326B6' : '#94A3B8'}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text
-                        style={[
-                          styles.reasonText,
-                          pingReason === r && styles.reasonTextSelected,
-                        ]}
-                      >
-                        {r}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-
-                  <View style={styles.pingActionRow}>
-                    <TouchableOpacity
-                      style={styles.pingCancelBtn}
-                      onPress={() => setPingModalFaculty(null)}
-                    >
-                      <Text style={styles.pingCancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.pingConfirmBtn}
-                      onPress={handlePingSubmit}
-                    >
-                      <Text style={styles.pingConfirmBtnText}>Send Ping 🔔</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
-            </View>
-          </View>
-        </Modal>
-      )}
     </View>
   );
 }
@@ -676,48 +588,38 @@ const styles = StyleSheet.create({
   cardActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
-  primaryPingBtn: {
-    flex: 1,
+  timeStaleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4326B6',
-    borderRadius: 10,
-    paddingVertical: 9,
-  },
-  primaryPingBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12.5,
-    color: '#FFFFFF',
-  },
-  notifyWhenFreeBtn: {
+    gap: 6,
     flex: 1,
+  },
+  updatedTimeText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: '#64748B',
+  },
+  staleTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FAF8FE',
-    borderRadius: 10,
-    paddingVertical: 9,
+    backgroundColor: '#FEF3C7',
     borderWidth: 1,
-    borderColor: '#EDE9FE',
+    borderColor: '#FDE68A',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  notifyWhenFreeBtnActive: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
-  },
-  notifyWhenFreeBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: '#4326B6',
-  },
-  notifyWhenFreeBtnTextActive: {
-    color: '#15803D',
+  staleTagText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9.5,
+    color: '#B45309',
+    letterSpacing: 0.3,
   },
   mapShortcutBtn: {
     flexDirection: 'row',
@@ -726,7 +628,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EDE9FE',
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
   },
   mapShortcutBtnText: {
     fontFamily: 'Inter_600SemiBold',
@@ -778,127 +680,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 13,
     color: '#FFFFFF',
-  },
-
-  // Modal
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    justifyContent: 'flex-end',
-  },
-  pingSheetCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-  },
-  pingSheetHeader: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pingShieldIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#4326B6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  pingSheetTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 17,
-    color: '#1A191F',
-    marginBottom: 3,
-  },
-  pingSheetSubtitle: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-    color: '#64748B',
-  },
-  reasonLabel: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12.5,
-    color: '#334155',
-    marginBottom: 10,
-  },
-  reasonChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FAF8FE',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  reasonChipSelected: {
-    backgroundColor: '#EDE9FE',
-    borderColor: '#4326B6',
-  },
-  reasonText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 13,
-    color: '#334155',
-  },
-  reasonTextSelected: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    color: '#4326B6',
-  },
-  pingActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-  pingCancelBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
-  pingCancelBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 13.5,
-    color: '#475569',
-  },
-  pingConfirmBtn: {
-    flex: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4326B6',
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
-  pingConfirmBtnText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 13.5,
-    color: '#FFFFFF',
-  },
-  pingSuccessBox: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  pingSuccessText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 16,
-    color: '#15803D',
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  pingSuccessSub: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12.5,
-    color: '#64748B',
-    textAlign: 'center',
-    paddingHorizontal: 20,
   },
 });

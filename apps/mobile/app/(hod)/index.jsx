@@ -29,68 +29,12 @@ import { db } from '../../src/services/firebase';
 import { STATUS_KEYS, STATUS_CONFIG } from '@profping/shared';
 import LogoutModal from '../../src/components/LogoutModal';
 
-// Department Fallback Faculty Registry
+// Department Faculty Registry (starts empty until HOD provisions faculty)
 const SEED_DEPT_FACULTY = {
-  CMPN: [
-    {
-      uid: 'demo-faculty-cmpn-01',
-      name: 'Prof. Snehal Kulkarni',
-      department: 'CMPN',
-      designation: 'Assistant Professor • CMPN Dept',
-      cabin: 'Hall No. 304 • Table 1',
-      email: 'faculty.snehal@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-    {
-      uid: 'demo-faculty-cmpn-02',
-      name: 'Dr. Rahul Joshi',
-      department: 'CMPN',
-      designation: 'Associate Professor • CMPN Dept',
-      cabin: 'Hall No. 304 • Table 2',
-      email: 'faculty.rahul@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-    {
-      uid: 'demo-faculty-cmpn-04',
-      name: 'Prof. Rohan Patil',
-      department: 'CMPN',
-      designation: 'Associate Professor • Comp Sci',
-      cabin: 'Hall No. 204 • Table 4',
-      email: 'faculty.rohan@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-  ],
-  ECS: [
-    {
-      uid: 'demo-faculty-ecs-01',
-      name: 'Dr. Anjali Mehta',
-      department: 'ECS',
-      designation: 'Associate Professor • ECS Dept',
-      cabin: 'Hall No. 301 • Table 1',
-      email: 'anjali.mehta@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-    {
-      uid: 'demo-faculty-ecs-02',
-      name: 'Mr. Arjun Kulkarni',
-      department: 'ECS',
-      designation: 'Assistant Professor • ECS Dept',
-      cabin: 'Hall No. 301 • Table 2',
-      email: 'faculty.arjun@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-  ],
-  INFT: [
-    {
-      uid: 'demo-faculty-inft-01',
-      name: 'Prof. Priya Shah',
-      department: 'INFT',
-      designation: 'Assistant Professor • INFT Dept',
-      cabin: 'Hall No. 202 • Table 3',
-      email: 'faculty.priya@sfit.ac.in',
-      compliance: 'COMPLIANT',
-    },
-  ],
+  CMPN: [],
+  ECS: [],
+  INFT: [],
+  EXTC: [],
 };
 
 const STATUS_BADGE_CONFIG = {
@@ -136,11 +80,16 @@ export default function HodDashboardScreen() {
     Inter_800ExtraBold,
   });
 
-  const effectiveDept = department || 'CMPN';
-  const hodName = user?.displayName || 'Dr. Kavita Sonawane';
+  const effectiveDept = (department || user?.department || 'CMPN').toUpperCase();
+  const hodName =
+    user?.displayName ||
+    user?.name ||
+    (user?.email ? user.email.split('@')[0].replace('.', ' ') : 'Department HOD');
 
   const [liveStatuses, setLiveStatuses] = useState({});
-  const [facultyRoster, setFacultyRoster] = useState(SEED_DEPT_FACULTY[effectiveDept] || SEED_DEPT_FACULTY.CMPN);
+  const [facultyRoster, setFacultyRoster] = useState(
+    SEED_DEPT_FACULTY[effectiveDept] || SEED_DEPT_FACULTY.CMPN || []
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [refreshing, setRefreshing] = useState(false);
@@ -148,6 +97,9 @@ export default function HodDashboardScreen() {
 
   // 1. Subscribe in real time to live Firebase RTDB statuses
   useEffect(() => {
+    // Keep roster in sync with effectiveDept
+    setFacultyRoster(SEED_DEPT_FACULTY[effectiveDept] || SEED_DEPT_FACULTY.CMPN || []);
+
     const statusRef = ref(db, 'status');
     const unsubscribe = onValue(statusRef, (snapshot) => {
       if (snapshot.exists()) {

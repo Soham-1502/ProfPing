@@ -134,9 +134,12 @@ export default function FacultyProfileView({ onBack }) {
   };
 
   const liveStatus = selectedStatusId;
-  const facultyName = user?.displayName || 'Dr. Anjali Mehta';
-  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • ECS Dept';
-  const facultyEmail = user?.email || 'anjali.mehta@sfit.ac.in';
+  const facultyName =
+    user?.displayName ||
+    user?.name ||
+    (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Faculty Member');
+  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • SFIT';
+  const facultyEmail = user?.email || 'faculty@sfit.ac.in';
 
   const handleLogoutPress = () => {
     setLogoutModalVisible(true);

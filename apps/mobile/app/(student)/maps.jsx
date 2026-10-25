@@ -50,20 +50,19 @@ export default function StudentMapsPage() {
 
       {/* ── TOP HEADER BAR ─────────────────────────────────────────── */}
       <View style={styles.topHeader}>
-
         <View style={styles.titleBlock}>
           <View style={styles.headerTag}>
-            <Text style={styles.headerTagText}>CAMPUS NAVIGATION</Text>
+            <Text style={styles.headerTagText}>FACULTY LOCATION</Text>
           </View>
-          <Text style={styles.screenTitle}>Interactive Floor Maps</Text>
+          <Text style={styles.screenTitle}>Cabins</Text>
         </View>
 
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() =>
             Alert.alert(
-              'BLE Mesh Calibrated',
-              'Beacon Node B3-01 is online and actively tracking faculty cabin beacons with 0.8s accuracy.'
+              'Self-Reported Presence',
+              'Faculty broadcast their active location and cabin presence in real-time.'
             )
           }
           activeOpacity={0.7}
@@ -77,6 +76,14 @@ export default function StudentMapsPage() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* ── SELF-REPORTED PRESENCE BANNER ───────────────────────── */}
+        <View style={styles.presenceNoticeCard}>
+          <Ionicons name="information-circle" size={18} color="#4326B6" style={{ marginRight: 8 }} />
+          <Text style={styles.presenceNoticeText}>
+            Self-reported presence view • Faculty broadcast their active location and cabin presence in real-time.
+          </Text>
+        </View>
+
         {/* ── FLOOR SELECTOR CHIPS ─────────────────────────────────── */}
         <View style={styles.floorSelectorRow}>
           {floors.map((floor) => {
@@ -112,7 +119,7 @@ export default function StudentMapsPage() {
           </View>
           <View style={styles.liveSensorBadge}>
             <View style={styles.liveSensorDot} />
-            <Text style={styles.liveSensorText}>Mesh Live</Text>
+            <Text style={styles.liveSensorText}>Live Presence</Text>
           </View>
         </View>
 
@@ -365,6 +372,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 110,
+  },
+
+  // Presence notice
+  presenceNoticeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  presenceNoticeText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11.5,
+    color: '#4326B6',
+    flex: 1,
+    lineHeight: 16,
   },
 
   // Floor selector

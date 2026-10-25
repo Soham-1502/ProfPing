@@ -91,19 +91,19 @@ export default function FloatingNavbar({ activeTab = 'home', onFavoritesPress })
         </Text>
       </TouchableOpacity>
 
-      {/* Maps Tab */}
+      {/* Cabins Tab */}
       <TouchableOpacity
         style={styles.floatingTabItem}
         onPress={() => handleTabPress('maps', 1)}
         activeOpacity={0.7}
       >
         <Ionicons
-          name={activeTab === 'maps' ? 'map' : 'map-outline'}
+          name={activeTab === 'maps' ? 'business' : 'business-outline'}
           size={19}
           color={activeTab === 'maps' ? '#4326B6' : '#64748B'}
         />
         <Text style={[styles.floatingTabLabel, activeTab === 'maps' && styles.floatingTabLabelActive]}>
-          Maps
+          Cabins
         </Text>
       </TouchableOpacity>
 

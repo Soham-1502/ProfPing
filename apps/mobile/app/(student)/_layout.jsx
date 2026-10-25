@@ -1,11 +1,14 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Slot, usePathname, useGlobalSearchParams } from 'expo-router';
+import { Slot, usePathname, useRouter } from 'expo-router';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
+import AccessRevokedModal from '../../src/components/AccessRevokedModal';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function StudentLayout() {
   const pathname = usePathname();
-  const params = useGlobalSearchParams();
+  const router = useRouter();
+  const { accessRevoked, dismissRevocationAndLogout } = useAuth();
 
   // Determine active tab based on route pathname
   let activeTab = 'home';
@@ -17,12 +20,21 @@ export default function StudentLayout() {
     activeTab = 'profile';
   }
 
+  const handleRevokedConfirm = async () => {
+    await dismissRevocationAndLogout();
+    router.replace('/(auth)/login');
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
         <Slot />
       </View>
       <FloatingNavbar activeTab={activeTab} />
+      <AccessRevokedModal
+        visible={accessRevoked}
+        onConfirm={handleRevokedConfirm}
+      />
     </View>
   );
 }

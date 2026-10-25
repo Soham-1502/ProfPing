@@ -5,9 +5,42 @@ import {
   signOut as fbSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { ref, get, set, update, onValue, off } from 'firebase/database';
 import { auth, db } from '../services/firebase';
 import { INSTITUTION, ROLES } from '@profping/shared';
+
+// Helper to sanitize email for RTDB keys
+function sanitizeEmail(email) {
+  return (email || '').toLowerCase().replace(/\./g, '_').replace(/@/g, '_at_');
+}
+
+// Helper to extract clean human-readable name from institutional email
+function formatDisplayNameFromEmail(email) {
+  if (!email) return 'User';
+  const prefix = email.split('@')[0];
+  if (prefix.startsWith('hod.')) {
+    const dept = prefix.replace('hod.', '').toUpperCase();
+    return `HOD ${dept}`;
+  }
+  if (prefix.startsWith('faculty.')) {
+    const namePart = prefix.replace('faculty.', '');
+    return 'Prof. ' + namePart.charAt(0).toUpperCase() + namePart.slice(1);
+  }
+  return prefix
+    .split('.')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+// Helper to infer department from email or role
+function inferDepartmentFromEmail(email) {
+  const lower = (email || '').toLowerCase();
+  if (lower.includes('cmpn') || lower.includes('comp') || lower.includes('cs')) return 'CMPN';
+  if (lower.includes('inft') || lower.includes('it')) return 'INFT';
+  if (lower.includes('extc') || lower.includes('telecom')) return 'EXTC';
+  if (lower.includes('ecs') || lower.includes('electronics')) return 'ECS';
+  return null;
+}
 
 const DEMO_ACCOUNTS = {
   'principal@sfit.ac.in': {
@@ -16,48 +49,6 @@ const DEMO_ACCOUNTS = {
     displayName: 'Dr. S. S. Rathod',
     role: ROLES.PRINCIPAL,
     department: null,
-  },
-  'hod.cmpn@sfit.ac.in': {
-    uid: 'demo-hod-cmpn-01',
-    email: 'hod.cmpn@sfit.ac.in',
-    displayName: 'Dr. Kavita Sonawane',
-    role: ROLES.HOD,
-    department: 'CMPN',
-  },
-  'faculty.snehal@sfit.ac.in': {
-    uid: 'demo-faculty-cmpn-01',
-    email: 'faculty.snehal@sfit.ac.in',
-    displayName: 'Prof. Snehal Kulkarni',
-    role: ROLES.FACULTY,
-    department: 'CMPN',
-  },
-  'faculty.rahul@sfit.ac.in': {
-    uid: 'demo-faculty-cmpn-02',
-    email: 'faculty.rahul@sfit.ac.in',
-    displayName: 'Dr. Rahul Joshi',
-    role: ROLES.FACULTY,
-    department: 'CMPN',
-  },
-  'anjali.mehta@sfit.ac.in': {
-    uid: 'demo-faculty-ecs-01',
-    email: 'anjali.mehta@sfit.ac.in',
-    displayName: 'Dr. Anjali Mehta',
-    role: ROLES.FACULTY,
-    department: 'ECS',
-  },
-  'faculty.anjali@sfit.ac.in': {
-    uid: 'demo-faculty-ecs-01',
-    email: 'faculty.anjali@sfit.ac.in',
-    displayName: 'Dr. Anjali Mehta',
-    role: ROLES.FACULTY,
-    department: 'ECS',
-  },
-  'faculty.priya@sfit.ac.in': {
-    uid: 'demo-faculty-inft-01',
-    email: 'faculty.priya@sfit.ac.in',
-    displayName: 'Prof. Priya Shah',
-    role: ROLES.FACULTY,
-    department: 'INFT',
   },
   'student@sfit.ac.in': {
     uid: 'demo-student-cmpn-01',
@@ -87,6 +78,44 @@ export function AuthProvider({ children }) {
   const [claims, setClaims] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [accessRevoked, setAccessRevoked] = useState(false);
+
+  // Monitor real-time revocation status on user record
+  useEffect(() => {
+    if (!user?.uid) return;
+    const userRef = ref(db, `users/${user.uid}`);
+    const unsub = onValue(userRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const val = snapshot.val();
+        if (val.is_active === false || val.revoked === true || val.status === 'revoked') {
+          setAccessRevoked(true);
+        }
+      }
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+      else off(userRef);
+    };
+  }, [user?.uid]);
+
+  const dismissRevocationAndLogout = async () => {
+    setAccessRevoked(false);
+    await logout();
+  };
+
+  const updateStudentDepartment = async (newDept) => {
+    setDepartment(newDept);
+    if (profile) setProfile((prev) => ({ ...prev, department: newDept }));
+    if (user?.uid) {
+      try {
+        await update(ref(db, `users/${user.uid}`), {
+          department: newDept,
+        });
+      } catch (e) {
+        console.warn('Update student department note:', e.message);
+      }
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -96,25 +125,29 @@ export function AuthProvider({ children }) {
           const userClaims = tokenResult.claims || {};
           let userRole = userClaims.role || null;
           let userDept = userClaims.department || null;
+          let userDisplayName = currentUser.displayName || null;
 
+          const resolved = await resolveUserRoleByEmail(currentUser.email, currentUser.uid);
           if (!userRole) {
-            try {
-              const snapshot = await get(ref(db, `users/${currentUser.uid}`));
-              if (snapshot.exists()) {
-                const data = snapshot.val();
-                userRole = data.role || null;
-                userDept = data.department || null;
-                setProfile(data);
-              }
-            } catch (dbErr) {
-              console.warn('Realtime DB read note:', dbErr.message);
-            }
+            userRole = resolved.role;
+            userDept = resolved.department;
+          }
+          if (!userDisplayName) {
+            userDisplayName = resolved.displayName;
           }
 
-          setUser(currentUser);
+          const userObj = {
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: userDisplayName,
+            photoURL: currentUser.photoURL || null,
+          };
+
+          setUser(userObj);
           setRole(userRole);
           setDepartment(userDept);
           setClaims(userClaims);
+          setProfile(resolved);
         } catch (err) {
           console.error('Error in mobile auth token listener:', err);
           setUser(currentUser);
@@ -129,40 +162,97 @@ export function AuthProvider({ children }) {
   // Look up user role by email (student vs staff database check for faculty or hod)
   const resolveUserRoleByEmail = async (email, authUid = null) => {
     const normalized = (email || '').trim().toLowerCase();
+    const inferredDept = inferDepartmentFromEmail(normalized) || 'CMPN';
+    const fallbackName = formatDisplayNameFromEmail(normalized);
 
-    // 1. Student Check: Automatically route users with @student.sfit.ac.in to student interface
-    if (normalized.endsWith('@student.sfit.ac.in')) {
+    // 1. Check known institutional demo accounts
+    if (DEMO_ACCOUNTS[normalized]) {
+      const demo = DEMO_ACCOUNTS[normalized];
       return {
-        uid: authUid || `student-${Date.now()}`,
-        email: normalized,
-        displayName: normalized.split('@')[0].replace('.', ' '),
-        role: ROLES.STUDENT,
-        department: 'CMPN',
+        ...demo,
+        uid: authUid || demo.uid,
       };
     }
 
-    // 2. Staff Check (@sfit.ac.in): Query database to verify specific role (faculty vs hod)
-    // Check direct users/{uid} record if authenticated
+    // 2. Check direct users/{uid} record if authenticated
     if (authUid) {
       try {
         const userSnap = await get(ref(db, `users/${authUid}`));
         if (userSnap.exists()) {
           const val = userSnap.val();
+          if (val.is_active === false) {
+            throw new Error('Access Revoked: Your account has been deactivated by the department administrator.');
+          }
           const dbRole = (val.role || '').toLowerCase();
+          const resolvedRole =
+            dbRole === 'hod'
+              ? ROLES.HOD
+              : dbRole === 'faculty'
+              ? ROLES.FACULTY
+              : dbRole === 'principal'
+              ? ROLES.PRINCIPAL
+              : ROLES.STUDENT;
+
           return {
             uid: authUid,
             email: normalized,
-            displayName: val.name || val.displayName || normalized.split('@')[0],
-            role: dbRole === 'hod' ? ROLES.HOD : dbRole === 'student' ? ROLES.STUDENT : ROLES.FACULTY,
-            department: val.department || 'CMPN',
+            displayName: val.name || val.displayName || fallbackName,
+            role: resolvedRole,
+            department: val.department || inferredDept,
           };
         }
       } catch (err) {
+        if (err.message?.includes('Access Revoked')) throw err;
         console.warn('Realtime DB user check note:', err.message);
       }
     }
 
-    // Query /users directory in database by email
+    // 3. Check preapproved_users/${sanitizedKey} in RTDB (pre-approved by Principal for HODs or Faculty)
+    try {
+      const sanitizedKey = sanitizeEmail(normalized);
+      const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
+      if (preSnap.exists()) {
+        const pre = preSnap.val();
+        const preRole = (pre.role || '').toLowerCase();
+        const resolvedRole =
+          preRole === 'hod'
+            ? ROLES.HOD
+            : preRole === 'faculty'
+            ? ROLES.FACULTY
+            : ROLES.STUDENT;
+        const assignedDept = pre.department || inferredDept;
+        const assignedName = pre.name || pre.displayName || fallbackName;
+
+        // Auto-provision or link active session record in users table
+        if (authUid) {
+          try {
+            await update(ref(db, `users/${authUid}`), {
+              uid: authUid,
+              email: normalized,
+              displayName: assignedName,
+              name: assignedName,
+              role: resolvedRole,
+              department: assignedDept,
+              claimedAt: Date.now(),
+              hasSignedIn: true,
+              is_active: true,
+            });
+          } catch (_) {}
+        }
+
+        return {
+          uid: authUid || pre.uid || `preapproved-${Date.now()}`,
+          email: normalized,
+          displayName: assignedName,
+          role: resolvedRole,
+          department: assignedDept,
+        };
+      }
+    } catch (err) {
+      console.warn('Realtime DB preapproved check note:', err.message);
+    }
+
+    // 4. Query /users directory in database by email
     try {
       const usersSnap = await get(ref(db, 'users'));
       if (usersSnap.exists()) {
@@ -173,12 +263,21 @@ export function AuthProvider({ children }) {
         if (matchedEntry) {
           const [uUid, uData] = matchedEntry;
           const dbRole = (uData.role || '').toLowerCase();
+          const resolvedRole =
+            dbRole === 'hod'
+              ? ROLES.HOD
+              : dbRole === 'faculty'
+              ? ROLES.FACULTY
+              : dbRole === 'principal'
+              ? ROLES.PRINCIPAL
+              : ROLES.STUDENT;
+
           return {
             uid: authUid || uUid,
             email: normalized,
-            displayName: uData.name || uData.displayName || normalized.split('@')[0],
-            role: dbRole === 'hod' ? ROLES.HOD : dbRole === 'student' ? ROLES.STUDENT : ROLES.FACULTY,
-            department: uData.department || 'CMPN',
+            displayName: uData.name || uData.displayName || fallbackName,
+            role: resolvedRole,
+            department: uData.department || inferredDept,
           };
         }
       }
@@ -186,12 +285,7 @@ export function AuthProvider({ children }) {
       console.warn('Realtime DB users table lookup note:', err.message);
     }
 
-    // Check known institutional accounts (HODs, Faculty, Demo)
-    if (DEMO_ACCOUNTS[normalized]) {
-      return DEMO_ACCOUNTS[normalized];
-    }
-
-    // Check /faculty list in database
+    // 5. Check /faculty list in database (managed by Department HOD)
     try {
       const facultySnapshot = await get(ref(db, 'faculty'));
       if (facultySnapshot.exists()) {
@@ -204,9 +298,9 @@ export function AuthProvider({ children }) {
           return {
             uid: authUid || match.uid || `faculty-${Date.now()}`,
             email: normalized,
-            displayName: match.name || normalized.split('@')[0],
+            displayName: match.name || fallbackName,
             role: fRole === 'hod' ? ROLES.HOD : ROLES.FACULTY,
-            department: match.department || 'CMPN',
+            department: match.department || inferredDept,
           };
         }
       }
@@ -214,17 +308,53 @@ export function AuthProvider({ children }) {
       console.warn('Realtime DB faculty lookup note:', err.message);
     }
 
-    // Fallback based on email nomenclature
+    // 6. STRICT ENFORCEMENT: Only HODs authorized by the Principal can log in as HOD
     const isHod = normalized.startsWith('hod.') || normalized.includes('hod');
-    const isStudent = normalized.includes('student');
+    if (isHod) {
+      throw new Error(
+        `Access Denied: "${normalized}" is not registered in the Principal's HOD management table. Please add this HOD through the Principal portal first.`
+      );
+    }
 
-    return {
-      uid: authUid || `user-${Date.now()}`,
-      email: normalized,
-      displayName: normalized.split('@')[0].replace('.', ' '),
-      role: isHod ? ROLES.HOD : isStudent ? ROLES.STUDENT : ROLES.FACULTY,
-      department: 'CMPN',
-    };
+    // Faculty prefix emails must be registered in the HOD directory
+    const isExplicitFaculty = normalized.startsWith('faculty.');
+    if (isExplicitFaculty) {
+      throw new Error(
+        `Access Denied: "${normalized}" has not been added to the department faculty directory by the HOD.`
+      );
+    }
+
+    // RULE (2): Auto-assign the student role only to verified @student.sfit.ac.in accounts.
+    // Non-pre-approved @sfit.ac.in accounts see "Access restricted".
+    if (normalized.endsWith('@student.sfit.ac.in')) {
+      if (authUid) {
+        try {
+          await update(ref(db, `users/${authUid}`), {
+            uid: authUid,
+            email: normalized,
+            displayName: fallbackName,
+            role: ROLES.STUDENT,
+            department: inferredDept,
+            is_active: true,
+            lastLoginAt: Date.now(),
+          });
+        } catch (_) {}
+      }
+
+      return {
+        uid: authUid || `student-${Date.now()}`,
+        email: normalized,
+        displayName: fallbackName,
+        role: ROLES.STUDENT,
+        department: inferredDept,
+      };
+    }
+
+    if (normalized.endsWith('@sfit.ac.in')) {
+      throw new Error('Access restricted: Non-pre-approved @sfit.ac.in accounts are not permitted to sign in. Please contact your department HOD for access.');
+    }
+
+    throw new Error('Access restricted: Only verified @student.sfit.ac.in or authorized @sfit.ac.in accounts are permitted.');
   };
 
   const loginWithGoogle = async (googleUser) => {
@@ -233,7 +363,11 @@ export function AuthProvider({ children }) {
     const isStaffDomain = email.endsWith('@sfit.ac.in');
 
     if (!isStudentDomain && !isStaffDomain) {
-      throw new Error(`Only @student.sfit.ac.in or @sfit.ac.in accounts are permitted.`);
+      throw new Error(`Access restricted: "${email || 'This account'}" is not an SFIT institutional email. Only @student.sfit.ac.in or @sfit.ac.in Google accounts are permitted.`);
+    }
+
+    if (googleUser?.email_verified === false) {
+      throw new Error('Email verification required: Please verify your institutional Google account before signing in.');
     }
 
     const resolved = await resolveUserRoleByEmail(email, googleUser?.uid);
@@ -268,20 +402,24 @@ export function AuthProvider({ children }) {
       try {
         const cred = await signInWithEmailAndPassword(auth, trimmed, password);
         const tokenResult = await cred.user.getIdTokenResult(true);
-        let userRole = tokenResult.claims?.role || null;
-        let userDept = tokenResult.claims?.department || null;
+        const resolved = await resolveUserRoleByEmail(trimmed, cred.user.uid);
+        let userRole = tokenResult.claims?.role || resolved.role;
+        let userDept = tokenResult.claims?.department || resolved.department;
+        let userDisplayName = cred.user.displayName || resolved.displayName;
 
-        if (!userRole) {
-          const resolved = await resolveUserRoleByEmail(trimmed, cred.user.uid);
-          userRole = resolved.role;
-          userDept = resolved.department;
-        }
+        const userObj = {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          displayName: userDisplayName,
+          photoURL: cred.user.photoURL || null,
+        };
 
-        setUser(cred.user);
+        setUser(userObj);
         setRole(userRole);
         setDepartment(userDept);
-        setClaims(tokenResult.claims);
-        return { user: cred.user, role: userRole, department: userDept };
+        setClaims({ role: userRole, department: userDept });
+        setProfile(resolved);
+        return { user: userObj, role: userRole, department: userDept };
       } catch (err) {
         console.warn('Firebase signIn note:', err.code, err.message);
 
@@ -294,11 +432,18 @@ export function AuthProvider({ children }) {
           try {
             const newCred = await createUserWithEmailAndPassword(auth, trimmed, password);
             const resolved = await resolveUserRoleByEmail(trimmed, newCred.user.uid);
-            setUser(newCred.user);
+            const userObj = {
+              uid: newCred.user.uid,
+              email: newCred.user.email,
+              displayName: newCred.user.displayName || resolved.displayName,
+              photoURL: newCred.user.photoURL || null,
+            };
+            setUser(userObj);
             setRole(resolved.role);
             setDepartment(resolved.department);
             setClaims({ role: resolved.role, department: resolved.department });
-            return { user: newCred.user, role: resolved.role, department: resolved.department };
+            setProfile(resolved);
+            return { user: userObj, role: resolved.role, department: resolved.department };
           } catch (createErr) {
             console.warn('Firebase auto-create note:', createErr.code, createErr.message);
           }
@@ -348,6 +493,9 @@ export function AuthProvider({ children }) {
         claims,
         profile,
         loading,
+        accessRevoked,
+        dismissRevocationAndLogout,
+        updateStudentDepartment,
         login,
         loginWithGoogle,
         logout,

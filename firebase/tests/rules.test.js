@@ -23,15 +23,19 @@ test('Rules file exists and has valid JSON syntax', () => {
   assert.ok(rulesJson.rules);
 });
 
-test('Directory path /faculty is readable by any authenticated user, write locked', () => {
+test('Directory path /faculty is readable by any verified institutional user, write locked', () => {
   const faculty = rulesJson.rules.faculty;
-  assert.equal(faculty['.read'], 'auth != null');
+  assert.ok(faculty['.read'].includes('auth != null'));
+  assert.ok(faculty['.read'].includes('auth.token.email_verified === true'));
+  assert.ok(faculty['.read'].includes('@student\\.sfit\\.ac\\.in'));
   assert.equal(faculty['.write'], false);
 });
 
 test('Status path /status enforces faculty-only write on own record with valid state and now timestamp', () => {
   const status = rulesJson.rules.status;
-  assert.equal(status['.read'], 'auth != null');
+  assert.ok(status['.read'].includes('auth != null'));
+  assert.ok(status['.read'].includes('auth.token.email_verified === true'));
+  assert.ok(status['.read'].includes('@student\\.sfit\\.ac\\.in'));
   const uidRule = status['$uid'];
   assert.ok(uidRule['.write'].includes('auth.uid === $uid'));
   assert.ok(uidRule['.write'].includes("auth.token.role === 'faculty'"));

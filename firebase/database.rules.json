@@ -2,27 +2,27 @@
   "rules": {
     "users": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || auth.token.role === 'principal')",
+        ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/)) && (auth.uid === $uid || auth.token.role === 'principal')",
         ".write": false
       }
     },
     "faculty": {
-      ".read": "auth != null",
+      ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/))",
       ".write": false
     },
     "status": {
-      ".read": "auth != null",
+      ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/))",
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid && auth.token.role === 'faculty'",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.email.matches(/.*@sfit\\.ac\\.in$/) && auth.uid === $uid && auth.token.role === 'faculty'",
         ".validate": "newData.hasChildren(['state','updatedAt']) && newData.child('state').val().matches(/^(available|busy|in_lecture|off_campus)$/) && newData.child('updatedAt').val() === now",
         "message": { ".validate": "newData.isString() && newData.val().length <= 140" }
       }
     },
     "logs": {
       "$uid": {
-        ".read": "auth != null && (auth.token.role === 'principal' || (auth.token.role === 'hod' && auth.token.department === root.child('users').child($uid).child('department').val()))",
+        ".read": "auth != null && auth.token.email_verified === true && (auth.token.role === 'principal' || (auth.token.role === 'hod' && auth.token.department === root.child('users').child($uid).child('department').val()))",
         "$logId": {
-          ".write": "auth != null && auth.uid === $uid && auth.token.role === 'faculty' && !data.exists()",
+          ".write": "auth != null && auth.token.email_verified === true && auth.token.email.matches(/.*@sfit\\.ac\\.in$/) && auth.uid === $uid && auth.token.role === 'faculty' && !data.exists()",
           ".validate": "newData.hasChildren(['state','timestamp']) && newData.child('timestamp').val() === now"
         }
       }

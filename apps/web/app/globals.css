@@ -1,24 +1,72 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/**
+ * ProfPing Campus Clarity System Global Styles
+ * Based on apps/mobile/DESIGN.md
+ */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  /* Campus Clarity Surface System */
+  --color-surface: #FAF8FE;
+  --color-surface-dim: #DDDBE4;
+  --color-surface-bright: #FAF8FE;
+  --color-surface-container-lowest: #FFFFFF;
+  --color-surface-container-low: #F4F2FA;
+  --color-surface-container: #EFECF6;
+  --color-surface-container-high: #E9E7F1;
+  --color-surface-container-highest: #E5E2EB;
+  
+  /* Ink & Typography */
+  --color-on-surface: #1A191F;
+  --color-on-surface-variant: #4B4757;
+  --color-outline: #746F80;
+  --color-outline-variant: #C8C5D3;
+  
+  /* Brand Anchor - Campus Violet */
+  --color-primary: #492FB1;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #E0D8FD;
+  --color-on-primary-container: #190D4A;
+  --color-inverse-primary: #B8A8FA;
+  
+  /* Accent Categories */
+  --color-secondary: #7A4D89;
+  --color-secondary-container: #EBD4F2;
+  --color-on-secondary-container: #3E1C4A;
+  --color-tertiary: #0A687B;
+  --color-tertiary-container: #CEEDF3;
+  --color-on-tertiary-container: #053039;
+  
+  /* Status Colors (Signal-First) */
+  --color-status-available: #15803D;
+  --color-status-available-container: #DCFCE7;
+  --color-on-status-available-container: #14532D;
+  
+  --color-status-busy: #F59E0B;
+  --color-status-busy-container: #FEF3C7;
+  --color-on-status-busy-container: #78350F;
+  
+  --color-status-in-lecture: #2563EB;
+  --color-status-in-lecture-container: #DBEAFE;
+  --color-on-status-in-lecture-container: #1E3A8A;
+  
+  --color-status-off-campus: #DC2626;
+  --color-status-off-campus-container: #FEE2E2;
+  --color-on-status-off-campus-container: #7F1D1D;
+  
+  /* Shadows */
+  --shadow-flat: 0 1px 3px rgba(26, 25, 31, 0.05);
+  --shadow-raised: 0 6px 18px -4px rgba(73, 47, 177, 0.08), 0 2px 6px -2px rgba(26, 25, 31, 0.04);
+  --shadow-floating: 0 12px 28px -6px rgba(26, 25, 31, 0.15), 0 4px 10px -2px rgba(26, 25, 31, 0.06);
 }
 
 html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
+  background-color: var(--color-surface);
+  color: var(--color-on-surface);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -32,19 +80,33 @@ a {
   text-decoration: none;
 }
 
-.imgDark {
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-container);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-outline);
+}
+
+/* Responsive header utility */
+.hod-user-meta {
+  text-align: right;
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
+@media (min-width: 640px) {
+  .hod-user-meta {
+    display: block;
   }
 }

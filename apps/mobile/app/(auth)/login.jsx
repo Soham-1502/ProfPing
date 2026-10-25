@@ -15,6 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { FontAwesome5, AntDesign } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import * as Google from 'expo-auth-session/providers/google';
 import {
   useFonts,
@@ -29,21 +30,14 @@ import { INSTITUTION } from '@profping/shared';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Institutional Google accounts available for quick campus sign-in
+// Institutional accounts available for one-tap sign-in
 const GOOGLE_CAMPUS_ACCOUNTS = [
   {
-    displayName: 'Dr. Anjali Mehta',
-    email: 'anjali.mehta@sfit.ac.in',
-    roleTag: 'Faculty • ECS Dept',
-    avatarBg: '#15803D',
-    avatarText: 'AM',
-  },
-  {
-    displayName: 'Prof. Snehal Kulkarni',
-    email: 'faculty.snehal@sfit.ac.in',
-    roleTag: 'Faculty • CMPN Dept',
-    avatarBg: '#492FB1',
-    avatarText: 'SK',
+    displayName: 'Dr. Nitika Rai',
+    email: 'nitika.rai@sfit.ac.in',
+    roleTag: 'HOD • ECS Dept',
+    avatarBg: '#341C94',
+    avatarText: 'NR',
   },
   {
     displayName: 'Soham Tamhankar',
@@ -84,6 +78,11 @@ export default function MobileLoginScreen() {
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
     '475299222486-5b0r6tntanjfg0h9621lllruinab03i7.apps.googleusercontent.com';
 
+  const redirectUri = Platform.select({
+    web: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8081',
+    default: 'https://auth.expo.io/@anonymous/profping',
+  });
+
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: googleClientId,
     webClientId: googleClientId,
@@ -91,18 +90,25 @@ export default function MobileLoginScreen() {
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || googleClientId,
     scopes: ['profile', 'email'],
     prompt: 'select_account',
+    redirectUri,
   });
 
-  // Handle real Google OAuth callback response
+  // Display exact redirect URI in Metro bundler logs for easy Google Cloud Console configuration
+  useEffect(() => {
+    if (request?.redirectUri) {
+      console.log('👉 [Google OAuth] Configured Redirect URI:', request.redirectUri);
+    }
+  }, [request?.redirectUri]);
+
   useEffect(() => {
     async function handleAuthResponse() {
       if (response?.type === 'success') {
-        const { authentication } = response;
-        if (authentication?.accessToken) {
+        const accessToken = response.authentication?.accessToken || response.params?.access_token;
+        if (accessToken) {
           setSubmitting(true);
           try {
             const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-              headers: { Authorization: `Bearer ${authentication.accessToken}` },
+              headers: { Authorization: `Bearer ${accessToken}` },
             });
             const googleUser = await userInfoRes.json();
             const res = await loginWithGoogle(googleUser);
@@ -165,18 +171,67 @@ export default function MobileLoginScreen() {
   // Handle Continue with Google press: triggers real device Google OAuth session
   const handleGooglePress = async () => {
     setError('');
-    if (request) {
-      try {
-        const result = await promptAsync({ prompt: 'select_account' });
-        if (result?.type === 'success' || result?.type === 'cancel') {
+    setSubmitting(true);
+
+    try {
+      if (Platform.OS === 'web') {
+        if (request) {
+          const result = await promptAsync();
+          if (result?.type === 'success') return;
+        }
+        setGoogleModalVisible(true);
+        return;
+      }
+
+      // 1. Determine app return URL (e.g. exp://192.168.1.4:8081)
+      const appReturnUrl = Linking.createURL('');
+
+      // 2. Build Google OAuth authorization URL with authorized redirect_uri
+      const googleRedirectUri = 'https://auth.expo.io/@anonymous/profping';
+      const googleAuthParams = new URLSearchParams({
+        client_id: googleClientId,
+        redirect_uri: googleRedirectUri,
+        response_type: 'token',
+        scope: 'profile email',
+        prompt: 'select_account',
+      });
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${googleAuthParams.toString()}`;
+
+      // 3. Route through /start to set the proxy 'ru' cookie so it redirects back to the app
+      const startUrl = `https://auth.expo.io/@anonymous/profping/start?authUrl=${encodeURIComponent(googleAuthUrl)}&returnUrl=${encodeURIComponent(appReturnUrl)}`;
+
+      console.log('👉 [Google OAuth] Launching browser auth with returnUrl:', appReturnUrl);
+
+      // 4. Open in-app browser waiting for redirect back to appReturnUrl
+      const result = await WebBrowser.openAuthSessionAsync(startUrl, appReturnUrl);
+
+      if (result.type === 'success' && result.url) {
+        // Extract token from return URL hash (#access_token=... or ?access_token=...)
+        const rawHash = result.url.includes('#') ? result.url.split('#')[1] : result.url.split('?')[1] || '';
+        const params = Object.fromEntries(new URLSearchParams(rawHash));
+        const accessToken = params.access_token;
+
+        if (accessToken) {
+          const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          const googleUser = await userInfoRes.json();
+          const res = await loginWithGoogle(googleUser);
+          routeUserByRole(res.role);
           return;
         }
-      } catch (err) {
-        console.warn('Real Google promptAsync note:', err.message);
       }
+
+      // If user cancelled or dismissed, stop loading
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        return;
+      }
+    } catch (err) {
+      console.warn('Real Google OAuth note:', err);
+      setError(err.message || 'Google sign-in encountered an error');
+    } finally {
+      setSubmitting(false);
     }
-    // Fallback to institutional account picker
-    setGoogleModalVisible(true);
   };
 
   // Handle Google Login from picker
@@ -201,8 +256,7 @@ export default function MobileLoginScreen() {
     const isStudentDomain = trimmed.endsWith('@student.sfit.ac.in');
     const isStaffDomain = trimmed.endsWith('@sfit.ac.in');
     if (!isStudentDomain && !isStaffDomain) {
-      setError('Only @student.sfit.ac.in or @sfit.ac.in accounts are permitted');
-      setGoogleModalVisible(false);
+      setError('Access Denied: Only @student.sfit.ac.in or @sfit.ac.in accounts are permitted.');
       return;
     }
     await handleGoogleSelect({
@@ -442,19 +496,19 @@ export default function MobileLoginScreen() {
 
           {/* ── Quick Demo Test Accounts (One-Tap Access) ─────────────── */}
           <View style={styles.quickTestSection}>
-            <Text style={styles.quickTestHeader}>QUICK TEST LOGIN</Text>
+            <Text style={styles.quickTestHeader}>AUTHORIZED CAMPUS ACCOUNTS</Text>
             <View style={styles.quickTestRow}>
               <TouchableOpacity
                 style={styles.quickTestChip}
                 onPress={() => {
-                  setEmail('anjali.mehta@sfit.ac.in');
+                  setEmail('nitika.rai@sfit.ac.in');
                   setPassword('Password@123');
                   setError('');
                 }}
                 activeOpacity={0.8}
               >
-                <View style={[styles.testDot, { backgroundColor: '#15803D' }]} />
-                <Text style={styles.testChipText}>Dr. Anjali (Faculty)</Text>
+                <View style={[styles.testDot, { backgroundColor: '#341C94' }]} />
+                <Text style={styles.testChipText}>Dr. Nitika Rai (HOD ECS)</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -467,7 +521,7 @@ export default function MobileLoginScreen() {
                 activeOpacity={0.8}
               >
                 <View style={[styles.testDot, { backgroundColor: '#2563EB' }]} />
-                <Text style={styles.testChipText}>Student Account</Text>
+                <Text style={styles.testChipText}>Student (Soham Tamhankar)</Text>
               </TouchableOpacity>
             </View>
           </View>

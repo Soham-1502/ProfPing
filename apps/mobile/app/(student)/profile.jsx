@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../../src/context/AuthContext';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 import LogoutModal from '../../src/components/LogoutModal';
+import { getStarredFacultyUids } from '../../src/services/favoritesStorage';
 
 export default function StudentProfilePage() {
   const [fontsLoaded] = useFonts({
@@ -33,15 +34,43 @@ export default function StudentProfilePage() {
     Inter_800ExtraBold,
   });
 
-  const { user, logout } = useAuth();
+  const { user, department, logout, updateStudentDepartment } = useAuth();
   const router = useRouter();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
-  // Smart Sensor & Beacon Preferences
-  const [inCabinAlerts, setInCabinAlerts] = useState(true);
-  const [pingResponses, setPingResponses] = useState(true);
-  const [quietLectures, setQuietLectures] = useState(true);
-  const [proximityPings, setProximityPings] = useState(false);
+  const studentName =
+    user?.displayName ||
+    user?.name ||
+    (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Student Account');
+  const studentEmail = user?.email || 'student@sfit.ac.in';
+  const studentDept = (department || user?.department || 'CMPN').toUpperCase();
+  const initials =
+    studentName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join('') || 'ST';
+
+  const [starredCount, setStarredCount] = useState(0);
+
+  useEffect(() => {
+    getStarredFacultyUids().then((set) => setStarredCount(set.size));
+  }, []);
+
+  const handleSelectDepartment = () => {
+    Alert.alert(
+      'Select Department',
+      'Choose your enrolled engineering department:',
+      [
+        { text: 'CMPN (Computer Engg)', onPress: () => updateStudentDepartment('CMPN') },
+        { text: 'ECS (Electronics & Computer Science)', onPress: () => updateStudentDepartment('ECS') },
+        { text: 'INFT (Information Technology)', onPress: () => updateStudentDepartment('INFT') },
+        { text: 'EXTC (Electronics & Telecom)', onPress: () => updateStudentDepartment('EXTC') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleLogout = async () => {
     setLogoutModalVisible(false);
@@ -63,40 +92,11 @@ export default function StudentProfilePage() {
 
       {/* ── TOP HEADER BAR ─────────────────────────────────────────── */}
       <View style={styles.topHeader}>
-
         <View style={styles.titleBlock}>
           <View style={styles.accountBadge}>
             <Text style={styles.accountBadgeText}>STUDENT ACCOUNT</Text>
           </View>
           <Text style={styles.screenTitle}>Student Profile</Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.actionIconBtn}
-            onPress={() =>
-              Alert.alert(
-                'Edit Student Profile',
-                'Name, Roll No, and Department details are synchronized with the SFIT Academic Registry.'
-              )
-            }
-            activeOpacity={0.7}
-          >
-            <Ionicons name="pencil-outline" size={18} color="#1A191F" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionIconBtn}
-            onPress={() =>
-              Alert.alert(
-                'Campus Mesh Settings',
-                'BLE background beacon interval: 250ms • Network protocol: SFIT-Mesh-Enterprise v2'
-              )
-            }
-            activeOpacity={0.7}
-          >
-            <Ionicons name="settings-outline" size={19} color="#1A191F" />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -109,368 +109,84 @@ export default function StudentProfilePage() {
         {/* 1. STUDENT IDENTITY CARD */}
         <View style={styles.studentIdCard}>
           <View style={styles.studentIdTopRow}>
-            {/* Avatar with Initials & Verified Green Check */}
+            {/* Avatar with Initials */}
             <View style={styles.avatarBox}>
-              <Text style={styles.avatarInitials}>AD</Text>
+              <Text style={styles.avatarInitials}>{initials}</Text>
               <View style={styles.onlineBadge}>
                 <Ionicons name="checkmark" size={11} color="#FFFFFF" />
               </View>
             </View>
 
-            {/* Identity Info */}
+            {/* Identity Info: Name, College Email, Department */}
             <View style={styles.infoCol}>
               <View style={styles.nameRow}>
                 <Text style={styles.fullName} numberOfLines={1}>
-                  {user?.displayName || 'Aarav Des...'}
+                  {studentName}
                 </Text>
-                <View style={styles.activeCampusIdBadge}>
-                  <View style={styles.activeCampusIdDot} />
-                  <Text style={styles.activeCampusIdText}>Active Campus ID</Text>
-                </View>
-              </View>
-
-              <Text style={styles.degreeText}>
-                B.Tech Computer Science & Engg
-              </Text>
-              <Text style={styles.yearText}>
-                Year 3 • Semester VI
-              </Text>
-
-              <View style={styles.metaRow}>
-                <Ionicons name="card-outline" size={12} color="#4326B6" style={{ marginRight: 5 }} />
-                <Text style={styles.rollText}>SFIT-STU-2021-045</Text>
               </View>
 
               <View style={styles.metaRow}>
-                <Ionicons name="mail-outline" size={12} color="#64748B" style={{ marginRight: 5 }} />
-                <Text style={styles.emailText}>{user?.email || 'aarav.deshmukh@sfit.ac.in'}</Text>
+                <Ionicons name="mail-outline" size={13} color="#64748B" style={{ marginRight: 6 }} />
+                <Text style={styles.emailText}>{studentEmail}</Text>
               </View>
+
+              {/* Department Selector */}
+              <TouchableOpacity
+                style={styles.deptSelectPill}
+                onPress={handleSelectDepartment}
+                activeOpacity={0.8}
+              >
+                <FontAwesome5 name="graduation-cap" size={11} color="#4326B6" style={{ marginRight: 6 }} />
+                <Text style={styles.deptSelectText}>Department: {studentDept}</Text>
+                <FontAwesome5 name="chevron-down" size={9} color="#4326B6" style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             </View>
           </View>
 
           {/* Horizontal Divider */}
           <View style={styles.cardDivider} />
 
-          {/* 3 Column Stats */}
+          {/* Single Focused Metric: Starred Faculty */}
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumberPurple}>6</Text>
+            <View style={styles.statItemSingle}>
+              <Text style={styles.statNumberPurple}>{starredCount}</Text>
               <Text style={styles.statLabelMuted}>STARRED FACULTY</Text>
             </View>
-
-            <View style={styles.statDivider} />
-
-            <View style={styles.statItem}>
-              <Text style={styles.statNumberPurple}>24</Text>
-              <Text style={styles.statLabelMuted}>PINGS SENT</Text>
-            </View>
-
-            <View style={styles.statDivider} />
-
-            <View style={styles.statItem}>
-              <Text style={styles.statNumberGreen}>96%</Text>
-              <Text style={styles.statLabelMuted}>RESPONSE RATE</Text>
-            </View>
           </View>
         </View>
 
-        {/* 2. CAMPUS MESH ACTIVE BANNER */}
-        <TouchableOpacity
-          style={styles.meshPillCard}
-          onPress={() =>
-            Alert.alert(
-              'Campus Mesh Active',
-              'Auto-ping sync active in West Wing (Lab 402). 42 Faculty beacons syncing.'
-            )
-          }
-          activeOpacity={0.88}
-        >
-          <View style={styles.meshIconCircle}>
-            <Ionicons name="radio-outline" size={17} color="#4326B6" />
-          </View>
-          <View style={styles.meshTextCol}>
-            <View style={styles.meshTitleRow}>
-              <Text style={styles.meshTitle}>Campus Mesh Active</Text>
-              <View style={styles.meshDot} />
-            </View>
-            <Text style={styles.meshSubtitle}>
-              Auto-ping sync ready in West Wing (Lab 402)
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#64748B" />
-        </TouchableOpacity>
-
-        {/* 3. ACADEMIC AFFILIATION CARD */}
-        <View style={styles.academicCard}>
-          <View style={styles.academicHeader}>
-            <View style={styles.academicHeaderLeft}>
-              <FontAwesome5 name="graduation-cap" size={12} color="#4326B6" style={{ marginRight: 6 }} />
-              <Text style={styles.academicHeaderTitle}>ACADEMIC AFFILIATION</Text>
-            </View>
-            <Text style={styles.academicDeptText}>Dept. of ECS</Text>
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Row 1: Roll No */}
-          <View style={styles.academicRow}>
-            <View style={styles.academicIconBox}>
-              <FontAwesome5 name="hashtag" size={13} color="#64748B" />
-            </View>
-            <View style={styles.academicInfo}>
-              <Text style={styles.academicLabel}>ENROLLMENT / ROLL NO</Text>
-              <Text style={styles.academicValueBold}>2021-ECS-045</Text>
-            </View>
-            <View style={styles.activePillSmall}>
-              <Text style={styles.activePillSmallText}>Active</Text>
-            </View>
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Row 2: Assigned Faculty Mentor */}
-          <View style={styles.academicRow}>
-            <View style={styles.academicIconBox}>
-              <FontAwesome5 name="user-tie" size={13} color="#4326B6" />
-            </View>
-            <View style={styles.academicInfo}>
-              <Text style={styles.academicLabel}>ASSIGNED FACULTY MENTOR</Text>
-              <Text style={styles.academicValueBold}>Dr. Anjali Mehta</Text>
-              <Text style={styles.academicSubText}>Associate Professor, ECS</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.cabinBtnPill}
-              onPress={() => router.replace('/(student)/maps')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.cabinBtnPillText}>Cabin 304 </Text>
-              <FontAwesome5 name="arrow-right" size={9} color="#4326B6" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Row 3: Division & Batch */}
-          <View style={styles.academicRow}>
-            <View style={styles.academicIconBox}>
-              <FontAwesome5 name="users" size={13} color="#64748B" />
-            </View>
-            <View style={styles.academicInfo}>
-              <Text style={styles.academicLabel}>DIVISION & PRACTICAL BATCH</Text>
-              <Text style={styles.academicValueBold}>Div B • Batch B2 (Semester VI)</Text>
-            </View>
-            <TouchableOpacity
-              onPress={() =>
-                Alert.alert(
-                  'Batch Information',
-                  'Division B, Practical Lab Batch B2. Regular Lab Timing: 10:15 AM - 12:15 PM.'
-                )
-              }
-            >
-              <Ionicons name="information-circle-outline" size={18} color="#94A3B8" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Row 4: Library RFID Tag */}
-          <View style={styles.academicRow}>
-            <View style={styles.academicIconBox}>
-              <MaterialCommunityIcons name="contactless-payment" size={17} color="#64748B" />
-            </View>
-            <View style={styles.academicInfo}>
-              <Text style={styles.academicLabel}>LIBRARY RFID SENSOR TAG</Text>
-              <Text style={styles.academicValueBold}>RFID-9042-SFIT</Text>
-            </View>
-            <View style={styles.synchronizedBadge}>
-              <View style={styles.synchronizedDot} />
-              <Text style={styles.synchronizedText}>Synchronized</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* 4. ACTIVITY & UPCOMING OFFICE HOURS */}
-        <Text style={styles.sectionHeadingText}>
-          ACTIVITY & UPCOMING OFFICE HOURS
-        </Text>
-
-        {/* Activity Card 1 */}
-        <TouchableOpacity
-          style={styles.activityItemCard}
-          onPress={() =>
-            Alert.alert(
-              'Recent Ping Details',
-              'Ping sent to Prof. V. Kulkarni at 11:48 AM.\nStatus: Acknowledged • Faculty free after 12:30 PM.'
-            )
-          }
-          activeOpacity={0.85}
-        >
-          <View style={styles.activityIconPurple}>
-            <Ionicons name="time-outline" size={18} color="#7E22CE" />
-          </View>
-          <View style={styles.activityInfo}>
-            <View style={styles.activityTitleRow}>
-              <Text style={styles.activityTitleText}>Recent Ping: Prof. V. Kulkarni</Text>
-              <View style={styles.todayPillBadge}>
-                <Text style={styles.todayPillText}>3 Today</Text>
-              </View>
-            </View>
-            <Text style={styles.activitySubText}>
-              Dispatched 12m ago • Status: Acknowledged
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-        </TouchableOpacity>
-
-        {/* Activity Card 2 */}
-        <TouchableOpacity
-          style={styles.activityItemCard}
-          onPress={() =>
-            Alert.alert(
-              'Scheduled Project Review',
-              'Project Review with Dr. Anjali Mehta is confirmed for tomorrow, 2:30 PM – 3:00 PM at Cabin 304.'
-            )
-          }
-          activeOpacity={0.85}
-        >
-          <View style={styles.activityIconAmber}>
-            <Ionicons name="calendar-outline" size={17} color="#D97706" />
-          </View>
-          <View style={styles.activityInfo}>
-            <View style={styles.activityTitleRow}>
-              <Text style={styles.activityTitleText}>Project Review: Dr. Mehta</Text>
-              <View style={styles.tomorrowPillBadge}>
-                <Text style={styles.tomorrowPillText}>Tomorrow</Text>
-              </View>
-            </View>
-            <Text style={styles.activitySubText}>
-              2:30 PM – 3:00 PM • Cabin 304
-            </Text>
-          </View>
-          <Ionicons name="alarm-outline" size={18} color="#4326B6" />
-        </TouchableOpacity>
-
-        {/* 5. SMART SENSOR & BEACON PREFERENCES */}
-        <View style={styles.preferencesCard}>
-          <View style={styles.preferencesHeader}>
-            <View style={styles.preferencesHeaderLeft}>
-              <Ionicons name="notifications-outline" size={14} color="#4326B6" style={{ marginRight: 6 }} />
-              <Text style={styles.preferencesHeaderTitle}>
-                SMART SENSOR & BEACON PREFERENCES
-              </Text>
-            </View>
-            <Text style={styles.preferencesMonitoredText}>4 Monitored</Text>
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Preference 1 */}
-          <View style={styles.prefRow}>
-            <View style={styles.prefTextCol}>
-              <Text style={styles.prefTitleText}>Faculty In-Cabin Alerts</Text>
-              <Text style={styles.prefSubText}>
-                Notify instantly when starred faculty tap into desk sensor
-              </Text>
-            </View>
-            <Switch
-              value={inCabinAlerts}
-              onValueChange={setInCabinAlerts}
-              trackColor={{ false: '#E2E8F0', true: '#4326B6' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Preference 2 */}
-          <View style={styles.prefRow}>
-            <View style={styles.prefTextCol}>
-              <Text style={styles.prefTitleText}>Ping Response Notifications</Text>
-              <Text style={styles.prefSubText}>
-                Sound & haptic chime immediately upon faculty reply
-              </Text>
-            </View>
-            <Switch
-              value={pingResponses}
-              onValueChange={setPingResponses}
-              trackColor={{ false: '#E2E8F0', true: '#4326B6' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Preference 3 */}
-          <View style={styles.prefRow}>
-            <View style={styles.prefTextCol}>
-              <Text style={styles.prefTitleText}>Quiet During Lectures</Text>
-              <Text style={styles.prefSubText}>
-                Mute audible pings during enrolled timetable lectures
-              </Text>
-            </View>
-            <Switch
-              value={quietLectures}
-              onValueChange={setQuietLectures}
-              trackColor={{ false: '#E2E8F0', true: '#4326B6' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.cardDivider} />
-
-          {/* Preference 4 */}
-          <View style={styles.prefRow}>
-            <View style={styles.prefTextCol}>
-              <Text style={styles.prefTitleText}>Proximity Pings (10m Beacon)</Text>
-              <Text style={styles.prefSubText}>
-                Alert when passing within 10 meters of mentor's cabin
-              </Text>
-            </View>
-            <Switch
-              value={proximityPings}
-              onValueChange={setProximityPings}
-              trackColor={{ false: '#E2E8F0', true: '#4326B6' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-        </View>
-
-        {/* 6. CAMPUS IT HELP CENTER & MESH SUPPORT */}
+        {/* 2. CAMPUS IT HELP CENTER */}
         <TouchableOpacity
           style={styles.supportCard}
           onPress={() =>
             Alert.alert(
               'Campus IT Help Center',
-              'SFIT Academic Mesh & IT Support:\nEmail: it-support@sfit.ac.in\nExtension: 2404 / Academic Wing B'
+              'SFIT IT Support:\nEmail: it-support@sfit.ac.in\nExtension: 2404 / Academic Wing B'
             )
           }
           activeOpacity={0.85}
         >
           <Ionicons name="help-circle-outline" size={19} color="#334155" style={{ marginRight: 10 }} />
-          <Text style={styles.supportText}>Campus IT Help Center & Mesh Support</Text>
+          <Text style={styles.supportText}>Campus IT Help Center & Support</Text>
           <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
         </TouchableOpacity>
 
-        {/* 7. LOG OUT BUTTON */}
+        {/* 3. LOG OUT BUTTON */}
         <TouchableOpacity
           style={styles.logoutBtn}
           onPress={() => setLogoutModalVisible(true)}
           activeOpacity={0.85}
         >
           <Ionicons name="log-out-outline" size={18} color="#DC2626" style={{ marginRight: 8 }} />
-          <Text style={styles.logoutBtnText}>Log Out of SFIT Campus Mesh</Text>
+          <Text style={styles.logoutBtnText}>Log Out</Text>
         </TouchableOpacity>
 
-        {/* 8. FOOTER METADATA */}
+        {/* 4. FOOTER METADATA */}
         <View style={styles.footerBlock}>
-          <View style={styles.footerSecureRow}>
-            <Ionicons name="shield-checkmark-outline" size={12} color="#64748B" style={{ marginRight: 4 }} />
-            <Text style={styles.footerSecureText}>SFIT Secure Mesh • WPA3-Enterprise</Text>
-          </View>
-          <Text style={styles.footerBuildText}>PROF-PING Student v2.4.1 (Build 198)</Text>
+          <Text style={styles.footerBuildText}>PROF-PING Student v2.4.1</Text>
         </View>
 
-        <View style={{ height: 110 }} />
+        <View style={{ height: 28 }} />
       </ScrollView>
 
       {/* ── THEMED LOGOUT CONFIRMATION MODAL ──────────────────────────── */}
@@ -683,6 +399,23 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: '#64748B',
   },
+  deptSelectPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 8,
+  },
+  deptSelectText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11.5,
+    color: '#4326B6',
+  },
   cardDivider: {
     height: 1,
     backgroundColor: '#F1F5F9',
@@ -690,9 +423,13 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 4,
+  },
+  statItemSingle: {
+    alignItems: 'center',
+    paddingVertical: 4,
   },
   statItem: {
     alignItems: 'center',

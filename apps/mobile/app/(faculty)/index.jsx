@@ -236,8 +236,11 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
   };
 
   const activeCardObj = STATUS_CARDS.find((c) => c.id === selectedStatusId) || STATUS_CARDS[0];
-  const facultyName = user?.displayName || 'Dr. Anjali Mehta';
-  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • ECS Dept';
+  const facultyName =
+    user?.displayName ||
+    user?.name ||
+    (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Faculty Member');
+  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • SFIT';
 
   if (!fontsLoaded) {
     return (

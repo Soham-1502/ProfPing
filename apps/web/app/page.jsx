@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { STATUS_CONFIG, STATUS_KEYS, ROLES, DEPARTMENTS, calculateDailyDeskHours } from '@profping/shared';
-import { auth, db } from '../src/lib/firebase';
 import { useAuth } from '../src/hooks/useAuth';
 
 export default function Home() {
@@ -30,45 +29,56 @@ export default function Home() {
   return (
     <div style={{
       minHeight: '100vh',
-      backgroundColor: '#090d16',
-      color: '#f8fafc',
-      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      backgroundColor: '#FAF8FE',
+      color: '#1A191F',
       padding: '40px 24px',
     }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
         {/* Header */}
         <header style={{
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          paddingBottom: '24px',
+          backgroundColor: '#FFFFFF',
+          borderRadius: '16px',
+          border: '1px solid #C8C5D3',
+          boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+          padding: '28px',
           marginBottom: '32px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '16px',
+          gap: '20px',
         }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
+              <img
+                src="/profping-logo.png"
+                alt="ProfPing"
+                style={{
+                  height: '32px',
+                  width: 'auto',
+                  objectFit: 'contain',
+                }}
+              />
               <span style={{
-                backgroundColor: '#3b82f6',
-                color: '#fff',
-                fontSize: '12px',
+                backgroundColor: '#E0D8FD',
+                color: '#190D4A',
+                fontSize: '11.5px',
                 fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: '6px',
-                letterSpacing: '1px',
+                padding: '4px 12px',
+                borderRadius: '9999px',
+                letterSpacing: '0.5px',
               }}>
-                PHASE 1 FOUNDATION
+                CAMPUS CLARITY SYSTEM
               </span>
-              <span style={{ color: '#10b981', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }} />
-                Firebase & Shared Package Linked
+              <span style={{ color: '#15803D', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#15803D', display: 'inline-block' }} />
+                Firebase & Shared Backend Linked
               </span>
             </div>
-            <h1 style={{ fontSize: '32px', fontWeight: 800, marginTop: '8px', letterSpacing: '-0.5px' }}>
-              ProfPing Administrative Portal
+            <h1 style={{ fontSize: '26px', fontWeight: 800, margin: '0 0 4px', color: '#1A191F', letterSpacing: '-0.5px' }}>
+              Institutional Command Portal
             </h1>
-            <p style={{ color: '#94a3b8', fontSize: '15px', marginTop: '4px' }}>
+            <p style={{ color: '#4B4757', fontSize: '14.5px', margin: 0 }}>
               Real-time faculty availability and administrative desk-hour analytics system
             </p>
           </div>
@@ -77,27 +87,28 @@ export default function Home() {
             {user ? (
               <>
                 <span style={{
-                  backgroundColor: role === 'principal' ? 'rgba(139, 92, 246, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                  border: `1px solid ${role === 'principal' ? '#8b5cf6' : '#3b82f6'}40`,
-                  padding: '8px 14px',
-                  borderRadius: '8px',
+                  backgroundColor: '#E0D8FD',
+                  border: '1px solid rgba(73, 47, 177, 0.25)',
+                  padding: '8px 16px',
+                  borderRadius: '9999px',
                   fontSize: '13px',
-                  color: role === 'principal' ? '#c4b5fd' : '#93c5fd',
-                  fontWeight: 600,
+                  color: '#190D4A',
+                  fontWeight: 700,
                 }}>
                   {role?.toUpperCase()} {department ? `(${department})` : ''}
                 </span>
                 <button
                   onClick={() => router.push(role === 'hod' ? '/hod' : role === 'principal' ? '/principal' : '/login')}
                   style={{
-                    backgroundColor: '#2563eb',
+                    backgroundColor: '#492FB1',
                     border: 'none',
-                    color: '#ffffff',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
+                    color: '#FFFFFF',
+                    padding: '9px 20px',
+                    borderRadius: '9999px',
                     fontSize: '13px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(73, 47, 177, 0.2)',
                   }}
                 >
                   Enter Portal →
@@ -105,12 +116,13 @@ export default function Home() {
                 <button
                   onClick={logout}
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    color: '#cbd5e1',
-                    padding: '8px 14px',
-                    borderRadius: '8px',
+                    backgroundColor: '#F4F2FA',
+                    border: '1px solid #C8C5D3',
+                    color: '#4B4757',
+                    padding: '9px 18px',
+                    borderRadius: '9999px',
                     fontSize: '13px',
+                    fontWeight: 600,
                     cursor: 'pointer',
                   }}
                 >
@@ -121,14 +133,15 @@ export default function Home() {
               <button
                 onClick={() => router.push('/login')}
                 style={{
-                  backgroundColor: '#2563eb',
+                  backgroundColor: '#492FB1',
                   border: 'none',
-                  color: '#ffffff',
-                  padding: '9px 18px',
-                  borderRadius: '8px',
+                  color: '#FFFFFF',
+                  padding: '10px 24px',
+                  borderRadius: '9999px',
                   fontSize: '14px',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(73, 47, 177, 0.2)',
                 }}
               >
                 Sign In to Portal →
@@ -139,7 +152,7 @@ export default function Home() {
 
         {/* Status Protocol Indicators */}
         <section style={{ marginBottom: '36px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#e2e8f0', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#1A191F', marginBottom: '16px' }}>
             Live Status Protocol Matrix
           </h2>
           <div style={{
@@ -151,10 +164,11 @@ export default function Home() {
               <div
                 key={cfg.key}
                 style={{
-                  backgroundColor: 'rgba(30, 41, 59, 0.7)',
-                  border: `1px solid ${cfg.borderColor}40`,
-                  borderRadius: '12px',
-                  padding: '20px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #C8C5D3',
+                  borderRadius: '16px',
+                  boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+                  padding: '22px',
                   position: 'relative',
                   overflow: 'hidden',
                 }}
@@ -168,21 +182,23 @@ export default function Home() {
                   backgroundColor: cfg.color,
                 }} />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '17px', fontWeight: 700, color: '#ffffff' }}>{cfg.label}</span>
+                  <span style={{ fontSize: '17px', fontWeight: 700, color: '#1A191F' }}>{cfg.label}</span>
                   <span style={{
                     fontSize: '11px',
                     fontFamily: 'monospace',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '9999px',
+                    backgroundColor: `${cfg.color}15`,
                     color: cfg.color,
+                    border: `1px solid ${cfg.color}30`,
                   }}>
                     {cfg.key}
                   </span>
                 </div>
-                <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: '1.4' }}>{cfg.description}</p>
-                <div style={{ marginTop: '12px', fontSize: '12px', color: '#64748b' }}>
-                  Default broadcast: <em style={{ color: '#cbd5e1' }}>"{cfg.defaultMessage}"</em>
+                <p style={{ fontSize: '13px', color: '#4B4757', lineHeight: '1.4' }}>{cfg.description}</p>
+                <div style={{ marginTop: '12px', fontSize: '12px', color: '#777585' }}>
+                  Default note: <em style={{ color: '#1A191F' }}>"{cfg.defaultMessage}"</em>
                 </div>
               </div>
             ))}
@@ -193,47 +209,49 @@ export default function Home() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
           {/* Desk-Hour Computation Test */}
           <div style={{
-            backgroundColor: 'rgba(30, 41, 59, 0.5)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '12px',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid #C8C5D3',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
             padding: '24px',
           }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#f1f5f9', marginBottom: '12px' }}>
-              Desk-Hour Engine (Section 9 Verification)
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1A191F', marginBottom: '10px' }}>
+              Desk-Hour Telemetry Engine (Audit Compliant)
             </h3>
-            <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: '#4B4757', marginBottom: '16px' }}>
               Testing delta-t algorithm with working-hours clipping (8:30 AM – 5:30 PM):
             </p>
             {testCalculation ? (
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.8)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+              <div style={{ backgroundColor: '#F4F2FA', padding: '16px', borderRadius: '12px', border: '1px solid #C8C5D3' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <span style={{ color: '#94a3b8', fontSize: '14px' }}>Computed Desk Hours:</span>
-                  <strong style={{ color: '#10b981', fontSize: '16px' }}>{testCalculation.deskHours} hrs</strong>
+                  <span style={{ color: '#4B4757', fontSize: '14px' }}>Computed Desk Hours:</span>
+                  <strong style={{ color: '#15803D', fontSize: '16px' }}>{testCalculation.deskHours} hrs</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <span style={{ color: '#94a3b8', fontSize: '14px' }}>Sample Log State Transitions:</span>
-                  <span style={{ color: '#cbd5e1', fontSize: '14px' }}>{testCalculation.logCount} transitions</span>
+                  <span style={{ color: '#4B4757', fontSize: '14px' }}>Sample Log State Transitions:</span>
+                  <span style={{ color: '#1A191F', fontSize: '14px', fontWeight: 600 }}>{testCalculation.logCount} transitions</span>
                 </div>
-                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', fontSize: '12px', color: '#64748b' }}>
+                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #C8C5D3', fontSize: '12px', color: '#777585' }}>
                   State breakdown: Available: {testCalculation.stateDurationsHours.available}h | In Lecture: {testCalculation.stateDurationsHours.in_lecture}h | Busy: {testCalculation.stateDurationsHours.busy}h
                 </div>
               </div>
             ) : (
-              <p style={{ color: '#94a3b8', fontSize: '13px' }}>Calculating...</p>
+              <p style={{ color: '#4B4757', fontSize: '13px' }}>Calculating...</p>
             )}
           </div>
 
           {/* Configured Departments */}
           <div style={{
-            backgroundColor: 'rgba(30, 41, 59, 0.5)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '12px',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid #C8C5D3',
+            borderRadius: '16px',
+            boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
             padding: '24px',
           }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#f1f5f9', marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1A191F', marginBottom: '10px' }}>
               Configured Institutional Departments
             </h3>
-            <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: '#4B4757', marginBottom: '16px' }}>
               Departments supported for HOD department-scoped security rules:
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -241,53 +259,20 @@ export default function Home() {
                 <div
                   key={dept.id}
                   style={{
-                    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    backgroundColor: '#F4F2FA',
+                    border: '1px solid #C8C5D3',
                     padding: '8px 14px',
-                    borderRadius: '8px',
+                    borderRadius: '9999px',
                     fontSize: '13px',
                   }}
                 >
-                  <span style={{ color: '#38bdf8', fontWeight: 700, marginRight: '6px' }}>{dept.id}</span>
-                  <span style={{ color: '#94a3b8' }}>{dept.name}</span>
+                  <span style={{ color: '#492FB1', fontWeight: 800, marginRight: '6px' }}>{dept.id}</span>
+                  <span style={{ color: '#4B4757' }}>{dept.name}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
-
-        {/* Phase 1 Completion Status Banner */}
-        <footer style={{
-          marginTop: '40px',
-          padding: '20px',
-          borderRadius: '10px',
-          backgroundColor: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(16, 185, 129, 0.25)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}>
-          <div>
-            <span style={{ color: '#10b981', fontWeight: 700, fontSize: '14px' }}>Phase 1 Exit Criteria Met:</span>
-            <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
-              Monorepo established with npm workspaces, Expo mobile app scaffolded with Metro monorepo resolver, Next.js web portal running with shared constants and deskHours telemetry engine.
-            </p>
-          </div>
-          <span
-            style={{
-              backgroundColor: '#2563eb',
-              color: '#ffffff',
-              padding: '10px 18px',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: 600,
-            }}
-          >
-            Ready for Phase 2: Auth →
-          </span>
-        </footer>
       </div>
     </div>
   );

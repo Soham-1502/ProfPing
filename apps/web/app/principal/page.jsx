@@ -1,22 +1,42 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import RoleGuard from '../../src/components/RoleGuard';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useRouter } from 'next/navigation';
-import { getScopedFaculty } from '../../src/lib/dashboardService';
+import { getScopedFaculty, enrichWithDeskHours } from '../../src/lib/dashboardService';
+import { subscribeToDepartmentFaculty } from '../../src/lib/hodService';
 import LiveStatusTable from '../../src/components/LiveStatusTable';
 import DeskHourChart from '../../src/components/DeskHourChart';
+import DepartmentComparisonChart from '../../src/components/DepartmentComparisonChart';
+import RoleManagementTable from '../../src/components/RoleManagementTable';
 import { STATUS_KEYS, DEPARTMENTS } from '@profping/shared';
+import { LogOut, LayoutDashboard, UserCheck, ShieldCheck, CheckCircle2, Clock } from 'lucide-react';
 
 export default function PrincipalDashboardPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
 
+  // Primary portal views: 'overview' | 'roles'
+  const [activeTab, setActiveTab] = useState('overview');
   const [selectedDept, setSelectedDept] = useState('ALL');
+  const [rawFaculty, setRawFaculty] = useState([]);
 
-  // Campus-wide faculty list
-  const allFaculty = useMemo(() => getScopedFaculty(null), []);
+  useEffect(() => {
+    // Live Firebase snapshot listener across all academic departments
+    const unsubscribe = subscribeToDepartmentFaculty('ALL', (list) => {
+      setRawFaculty(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Campus-wide faculty list with live desk hours enrichment
+  const allFaculty = useMemo(() => {
+    if (rawFaculty && rawFaculty.length > 0) {
+      return enrichWithDeskHours(rawFaculty);
+    }
+    return [];
+  }, [rawFaculty]);
 
   // Filtered by department if selected
   const displayFaculty = useMemo(() => {
@@ -24,22 +44,39 @@ export default function PrincipalDashboardPage() {
     return allFaculty.filter((f) => f.department === selectedDept);
   }, [allFaculty, selectedDept]);
 
-  // Campus Stats
+  // Campus Stats & Adoption Metrics
   const campusStats = useMemo(() => {
     let available = 0;
     let inLecture = 0;
-    let compliant = 0;
+    let targetMet = 0;
+    let updatedTodayCount = 0;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
     displayFaculty.forEach((f) => {
       if (f.status?.state === STATUS_KEYS.AVAILABLE) available++;
       if (f.status?.state === STATUS_KEYS.IN_LECTURE) inLecture++;
-      if (f.compliance === 'COMPLIANT') compliant++;
+      if (f.compliance === 'COMPLIANT' || (f.deskHours && f.deskHours >= 3.0)) targetMet++;
+
+      const updatedAt = f.status?.updatedAt;
+      if (updatedAt && updatedAt >= todayStart.getTime()) {
+        updatedTodayCount++;
+      }
     });
+
+    const total = displayFaculty.length;
+    const availabilityRate = total > 0 ? Math.round((targetMet / total) * 100) : 0;
+    const adoptionRate = total > 0 ? Math.round((updatedTodayCount / total) * 100) : 0;
+
     return {
-      total: displayFaculty.length,
+      total,
       available,
       inLecture,
-      compliant,
-      rate: displayFaculty.length ? Math.round((compliant / displayFaculty.length) * 100) : 0,
+      targetMet,
+      availabilityRate,
+      updatedTodayCount,
+      adoptionRate,
     };
   }, [displayFaculty]);
 
@@ -52,162 +89,344 @@ export default function PrincipalDashboardPage() {
     <RoleGuard allowedRoles={['principal']}>
       <div style={{
         minHeight: '100vh',
-        backgroundColor: '#090d16',
-        color: '#f8fafc',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        backgroundColor: '#FAF8FE',
+        color: '#1A191F',
       }}>
         {/* Navigation Bar */}
         <nav style={{
-          backgroundColor: '#0f172a',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          backgroundColor: '#FFFFFF',
+          borderBottom: '1px solid #EFECF6',
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
+          boxShadow: '0 2px 8px rgba(73, 47, 177, 0.04)',
           padding: '16px 28px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '12px',
+          gap: '16px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{
-              backgroundColor: '#8b5cf6',
-              color: '#ffffff',
-              fontWeight: 800,
-              fontSize: '16px',
-              padding: '6px 10px',
-              borderRadius: '8px',
-            }}>
-              ProfPing
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <img
+                src="/profping-logo.png"
+                alt="ProfPing"
+                style={{
+                  height: '30px',
+                  width: 'auto',
+                  objectFit: 'contain',
+                }}
+              />
+            </div>
+            <div style={{ height: '22px', width: '1px', backgroundColor: '#C8C5D3' }} />
             <div>
-              <h1 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
-                Principal Executive Portal — Institutional Campus Overview
-              </h1>
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                Cross-department live availability, faculty compliance metrics, and audit records
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#1A191F', letterSpacing: '-0.01em' }}>
+                  Principal Executive Portal
+                </h1>
+                <span style={{
+                  backgroundColor: '#E0D8FD',
+                  color: '#190D4A',
+                  border: '1px solid #C8C5D3',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '9999px',
+                  letterSpacing: '0.04em',
+                }}>
+                  CAMPUS SUPER ADMIN
+                </span>
+              </div>
+              <span style={{ fontSize: '12.5px', color: '#4B4757' }}>
+                Campus-wide faculty availability oversight and secure institutional role governance
               </span>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{
-              backgroundColor: 'rgba(139, 92, 246, 0.1)',
-              color: '#c4b5fd',
-              border: '1px solid rgba(139, 92, 246, 0.2)',
-              fontSize: '12px',
-              fontWeight: 600,
-              padding: '4px 10px',
-              borderRadius: '6px',
-            }}>
-              Role: Principal (Campus Super Admin)
-            </span>
-            <span style={{ fontSize: '13px', color: '#cbd5e1' }}>
-              {user?.email}
-            </span>
+            <div className="hod-user-meta">
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1A191F' }}>
+                {user?.displayName || 'Principal Office'}
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#4B4757' }}>
+                {user?.email}
+              </div>
+            </div>
+
             <button
               onClick={handleLogout}
               style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#ffffff',
-                padding: '6px 12px',
-                borderRadius: '6px',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #BA1A1A',
+                color: '#BA1A1A',
+                padding: '7px 16px',
+                borderRadius: '9999px',
                 fontSize: '12px',
+                fontWeight: 700,
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.15s ease',
               }}
             >
+              <LogOut size={14} />
               Sign Out
             </button>
           </div>
         </nav>
 
         {/* Content Body */}
-        <main style={{ maxWidth: '1240px', margin: '32px auto', padding: '0 24px' }}>
-          {/* Department Selection Filter Tabs */}
+        <main style={{ maxWidth: '1360px', margin: '28px auto', padding: '0 28px 60px' }}>
+          {/* Main Navigation Tabs */}
           <div style={{
             display: 'flex',
-            gap: '8px',
+            alignItems: 'center',
+            gap: '12px',
             marginBottom: '24px',
-            overflowX: 'auto',
-            paddingBottom: '4px',
+            borderBottom: '1px solid #E9E7F1',
+            paddingBottom: '12px',
           }}>
             <button
-              onClick={() => setSelectedDept('ALL')}
+              onClick={() => setActiveTab('overview')}
               style={{
-                backgroundColor: selectedDept === 'ALL' ? '#8b5cf6' : '#0f172a',
-                border: `1px solid ${selectedDept === 'ALL' ? '#8b5cf6' : 'rgba(255, 255, 255, 0.1)'}`,
-                color: '#ffffff',
-                padding: '8px 16px',
-                borderRadius: '20px',
+                backgroundColor: activeTab === 'overview' ? '#492FB1' : '#FFFFFF',
+                color: activeTab === 'overview' ? '#FFFFFF' : '#4B4757',
+                border: `1px solid ${activeTab === 'overview' ? '#492FB1' : '#C8C5D3'}`,
+                padding: '9px 18px',
+                borderRadius: '9999px',
                 fontSize: '13px',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: activeTab === 'overview' ? '0 4px 12px rgba(73, 47, 177, 0.2)' : 'none',
+                transition: 'all 0.15s ease',
               }}
             >
-              All Departments ({allFaculty.length})
+              <LayoutDashboard size={16} />
+              Campus Live Overview & Telemetry
             </button>
-            {DEPARTMENTS.map((dept) => (
-              <button
-                key={dept.id}
-                onClick={() => setSelectedDept(dept.id)}
-                style={{
-                  backgroundColor: selectedDept === dept.id ? '#8b5cf6' : '#0f172a',
-                  border: `1px solid ${selectedDept === dept.id ? '#8b5cf6' : 'rgba(255, 255, 255, 0.1)'}`,
-                  color: selectedDept === dept.id ? '#ffffff' : '#94a3b8',
-                  padding: '8px 16px',
-                  borderRadius: '20px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {dept.id}
-              </button>
-            ))}
+
+            <button
+              onClick={() => setActiveTab('roles')}
+              style={{
+                backgroundColor: activeTab === 'roles' ? '#492FB1' : '#FFFFFF',
+                color: activeTab === 'roles' ? '#FFFFFF' : '#4B4757',
+                border: `1px solid ${activeTab === 'roles' ? '#492FB1' : '#C8C5D3'}`,
+                padding: '9px 18px',
+                borderRadius: '9999px',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: activeTab === 'roles' ? '0 4px 12px rgba(73, 47, 177, 0.2)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <ShieldCheck size={16} />
+              Department HOD Management
+            </button>
           </div>
 
-          {/* Campus Stat Metrics */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: '16px',
-            marginBottom: '24px',
+          {activeTab === 'overview' ? (
+            <>
+              {/* Department Selection Filter Tabs */}
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                marginBottom: '24px',
+                overflowX: 'auto',
+                paddingBottom: '4px',
+              }}>
+                <button
+                  onClick={() => setSelectedDept('ALL')}
+                  style={{
+                    backgroundColor: selectedDept === 'ALL' ? '#492FB1' : '#FFFFFF',
+                    border: `1px solid ${selectedDept === 'ALL' ? '#492FB1' : '#C8C5D3'}`,
+                    color: selectedDept === 'ALL' ? '#FFFFFF' : '#4B4757',
+                    padding: '8px 18px',
+                    borderRadius: '9999px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: selectedDept === 'ALL' ? '0 4px 12px rgba(73, 47, 177, 0.15)' : 'none',
+                  }}
+                >
+                  All Departments ({allFaculty.length})
+                </button>
+                {DEPARTMENTS.map((dept) => {
+                  const isSelected = selectedDept === dept.id;
+                  return (
+                    <button
+                      key={dept.id}
+                      onClick={() => setSelectedDept(dept.id)}
+                      style={{
+                        backgroundColor: isSelected ? '#492FB1' : '#FFFFFF',
+                        border: `1px solid ${isSelected ? '#492FB1' : '#C8C5D3'}`,
+                        color: isSelected ? '#FFFFFF' : '#4B4757',
+                        padding: '8px 18px',
+                        borderRadius: '9999px',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 4px 12px rgba(73, 47, 177, 0.15)' : 'none',
+                      }}
+                    >
+                      {dept.id} — {dept.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Campus KPI Metrics (5 Cards including Adoption Today & Availability Rate) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: '16px',
+                marginBottom: '24px',
+              }}>
+                {/* 1. Campus Faculty */}
+                <div style={{
+                  backgroundColor: '#FFFFFF',
+                  padding: '20px',
+                  borderRadius: '16px',
+                  border: '1px solid #C8C5D3',
+                  boxShadow: '0 4px 20px -2px rgba(25, 13, 74, 0.04)',
+                }}>
+                  <span style={{ fontSize: '11.5px', color: '#4B4757', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                    Campus Faculty
+                  </span>
+                  <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#1A191F' }}>
+                    {campusStats.total}
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#492FB1', fontWeight: 600 }}>
+                    {selectedDept === 'ALL' ? 'Total Across Campus' : `${selectedDept} Department`}
+                  </span>
+                </div>
+
+                {/* 2. Available at Desk */}
+                <div style={{
+                  backgroundColor: '#FFFFFF',
+                  padding: '20px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(21, 128, 61, 0.3)',
+                  boxShadow: '0 4px 20px -2px rgba(21, 128, 61, 0.05)',
+                }}>
+                  <span style={{ fontSize: '11.5px', color: '#15803D', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                    Available at Desk
+                  </span>
+                  <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#15803D' }}>
+                    {campusStats.available}
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#4B4757' }}>Ready for student consultations</span>
+                </div>
+
+                {/* 3. In Lecture / Lab */}
+                <div style={{
+                  backgroundColor: '#FFFFFF',
+                  padding: '20px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(37, 99, 235, 0.3)',
+                  boxShadow: '0 4px 20px -2px rgba(37, 99, 235, 0.05)',
+                }}>
+                  <span style={{ fontSize: '11.5px', color: '#2563EB', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                    In Lecture / Lab
+                  </span>
+                  <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#2563EB' }}>
+                    {campusStats.inLecture}
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#4B4757' }}>Active classrooms & labs</span>
+                </div>
+
+                {/* 4. Availability Rate (Renamed from Compliance Rate) */}
+                <div style={{
+                  backgroundColor: '#FFFFFF',
+                  padding: '20px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(73, 47, 177, 0.3)',
+                  boxShadow: '0 4px 20px -2px rgba(73, 47, 177, 0.05)',
+                }}>
+                  <span style={{ fontSize: '11.5px', color: '#492FB1', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                    Availability Rate
+                  </span>
+                  <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#492FB1' }}>
+                    {campusStats.availabilityRate}%
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#4B4757' }}>
+                    {campusStats.targetMet} of {campusStats.total} met target (≥3h)
+                  </span>
+                </div>
+
+                {/* 5. Adoption Today (Small addition) */}
+                <div style={{
+                  backgroundColor: '#FFFFFF',
+                  padding: '20px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(180, 83, 9, 0.3)',
+                  boxShadow: '0 4px 20px -2px rgba(180, 83, 9, 0.05)',
+                }}>
+                  <span style={{ fontSize: '11.5px', color: '#B45309', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                    Adoption Today
+                  </span>
+                  <div style={{ fontSize: '32px', fontWeight: 800, marginTop: '6px', color: '#B45309' }}>
+                    {campusStats.updatedTodayCount} <span style={{ fontSize: '16px', fontWeight: 600, color: '#777585' }}>/ {campusStats.total}</span>
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#4B4757' }}>
+                    {campusStats.adoptionRate}% updated status today
+                  </span>
+                </div>
+              </div>
+
+              {/* Department Comparison Chart (Section Requirement) */}
+              <DepartmentComparisonChart facultyList={allFaculty} />
+
+              {/* Individual Faculty DeskHourChart with Date Selector */}
+              <DeskHourChart
+                facultyList={displayFaculty}
+                title={selectedDept === 'ALL' ? 'Institutional Campus-Wide Desk-Hour Analytics' : `${selectedDept} Department Desk-Hour Analytics`}
+              />
+
+              {/* Live Status Table with Cabin & Stale Marker */}
+              <LiveStatusTable
+                facultyList={displayFaculty}
+                title={selectedDept === 'ALL' ? 'Campus-Wide Faculty Availability Roster' : `${selectedDept} Faculty Availability Roster`}
+              />
+            </>
+          ) : (
+            /* Role Management Tab */
+            <RoleManagementTable />
+          )}
+
+          {/* Privacy Respecting Footer */}
+          <footer style={{
+            marginTop: '48px',
+            paddingTop: '24px',
+            borderTop: '1px solid #E9E7F1',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px',
+            fontSize: '12px',
+            color: '#777585',
           }}>
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Faculty in Scope</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#ffffff' }}>{campusStats.total}</div>
-              <span style={{ fontSize: '11px', color: '#c4b5fd' }}>{selectedDept === 'ALL' ? 'Campus Total' : selectedDept}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CheckCircle2 size={15} color="#15803D" />
+              <span>
+                <strong>Privacy Policy:</strong> Faculty availability status is self-reported in accordance with institutional guidelines. ProfPing does not perform automated surveillance or location tracking.
+              </span>
             </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Available in Cabin</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#10b981' }}>{campusStats.available}</div>
-              <span style={{ fontSize: '11px', color: '#10b981' }}>Available for students</span>
+            <div>
+              Working Window: <strong>8:30 AM – 5:30 PM</strong> | Target: <strong>3.0 hrs</strong>
             </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>In Lectures / Labs</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#3b82f6' }}>{campusStats.inLecture}</div>
-              <span style={{ fontSize: '11px', color: '#3b82f6' }}>Active classes</span>
-            </div>
-
-            <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Institutional Compliance</span>
-              <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '6px', color: '#f59e0b' }}>{campusStats.rate}%</div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>{campusStats.compliant} of {campusStats.total} met target (≥3h)</span>
-            </div>
-          </div>
-
-          {/* Recharts Analytics Chart */}
-          <DeskHourChart
-            facultyList={displayFaculty}
-            title={selectedDept === 'ALL' ? 'Institutional Campus-Wide Desk-Hour Analytics' : `${selectedDept} Department Desk-Hour Analytics`}
-          />
-
-          {/* Live Status Table */}
-          <LiveStatusTable
-            facultyList={displayFaculty}
-            title={selectedDept === 'ALL' ? 'Campus-Wide Faculty Availability Roster' : `${selectedDept} Faculty Availability Roster`}
-          />
+          </footer>
         </main>
       </div>
     </RoleGuard>
