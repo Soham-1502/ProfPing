@@ -59,6 +59,7 @@ export const STATUS_CONFIG = Object.freeze({
 export const DEPARTMENTS = Object.freeze([
   { id: 'CMPN', name: 'Computer Engineering' },
   { id: 'INFT', name: 'Information Technology' },
+  { id: 'ECS', name: 'Electronics & Computer Science' },
   { id: 'EXTC', name: 'Electronics & Telecommunication' },
   { id: 'ELEC', name: 'Electrical Engineering' },
   { id: 'MECH', name: 'Mechanical Engineering' },

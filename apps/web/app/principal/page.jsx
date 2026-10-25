@@ -36,7 +36,7 @@ export default function PrincipalDashboardPage() {
     if (rawFaculty && rawFaculty.length > 0) {
       return enrichWithDeskHours(rawFaculty);
     }
-    return [];
+    return enrichWithDeskHours(getScopedFaculty(null));
   }, [rawFaculty]);
 
   // Filtered by department if selected

@@ -4,6 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import fs from 'fs';
 import path from 'path';
+import { DEPARTMENTS } from '@profping/shared';
 
 // Lazy-initialize Firebase Admin SDK on the server safely
 function getFirebaseAdmin() {
@@ -266,7 +267,7 @@ export async function POST(request) {
       }
 
       // Department validation
-      const VALID_DEPTS = ['CMPN', 'INFT', 'EXTC', 'ECS'];
+      const VALID_DEPTS = DEPARTMENTS.map((d) => d.id);
       if (!VALID_DEPTS.includes(department)) {
         return NextResponse.json(
           { error: `Department must be one of: ${VALID_DEPTS.join(', ')}.` },

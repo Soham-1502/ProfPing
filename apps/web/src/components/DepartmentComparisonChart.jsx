@@ -18,8 +18,11 @@ import { DEPARTMENTS } from '@profping/shared';
 const DEPT_COLORS = {
   CMPN: '#492FB1',
   INFT: '#2563EB',
-  EXTC: '#0D9488',
   ECS: '#D97706',
+  EXTC: '#0D9488',
+  ELEC: '#7C3AED',
+  MECH: '#DC2626',
+  ASH: '#059669',
 };
 
 export default function DepartmentComparisonChart({ facultyList = [] }) {

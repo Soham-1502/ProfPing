@@ -98,6 +98,42 @@ const ALL_FACULTY_DATA = [
     ],
   },
   {
+    uid: 'demo-faculty-ecs-01',
+    name: 'Dr. Nitika Rai',
+    department: 'ECS',
+    designation: 'HOD Electronics & Computer Science',
+    email: 'nitika.rai@sfit.ac.in',
+    status: {
+      state: STATUS_KEYS.AVAILABLE,
+      message: 'Available in Cabin 301 (ECS Dept)',
+      updatedAt: Date.now() - 1000 * 60 * 10,
+    },
+    sampleLogs: [
+      { state: STATUS_KEYS.AVAILABLE, timestamp: new Date().setHours(8, 30, 0, 0) },
+      { state: STATUS_KEYS.IN_LECTURE, timestamp: new Date().setHours(11, 0, 0, 0) },
+      { state: STATUS_KEYS.AVAILABLE, timestamp: new Date().setHours(12, 30, 0, 0) },
+      { state: STATUS_KEYS.BUSY, timestamp: new Date().setHours(14, 30, 0, 0) },
+      { state: STATUS_KEYS.AVAILABLE, timestamp: new Date().setHours(15, 30, 0, 0) },
+    ],
+  },
+  {
+    uid: 'demo-faculty-ecs-02',
+    name: 'Prof. Shilpa Patil',
+    department: 'ECS',
+    designation: 'Assistant Professor',
+    email: 'shilpa.patil@sfit.ac.in',
+    status: {
+      state: STATUS_KEYS.IN_LECTURE,
+      message: 'Embedded Systems Lab (Room 303)',
+      updatedAt: Date.now() - 1000 * 60 * 25,
+    },
+    sampleLogs: [
+      { state: STATUS_KEYS.AVAILABLE, timestamp: new Date().setHours(9, 0, 0, 0) },
+      { state: STATUS_KEYS.IN_LECTURE, timestamp: new Date().setHours(10, 30, 0, 0) },
+      { state: STATUS_KEYS.AVAILABLE, timestamp: new Date().setHours(13, 0, 0, 0) },
+    ],
+  },
+  {
     uid: 'demo-faculty-extc-01',
     name: 'Dr. Amit Patel',
     department: 'EXTC',
