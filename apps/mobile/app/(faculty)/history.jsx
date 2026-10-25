@@ -82,16 +82,17 @@ export default function FacultyHistoryScreen() {
   });
 
   const { logs: contextLogs, logsLoaded } = useFaculty();
-  const [localLogs, setLocalLogs] = useState([]);
+  const [localLogs, setLocalLogs] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('ALL');
 
-  const logs = localLogs.length > 0 ? localLogs : contextLogs;
+  const logs = localLogs !== null ? localLogs : (contextLogs || []);
   const loading = !logsLoaded && logs.length === 0;
 
-  const facultyUid = user?.uid || 'demo-faculty-ecs-01';
+  const facultyUid = user?.uid || null;
 
   const onRefresh = async () => {
+    if (!facultyUid) return;
     setRefreshing(true);
     try {
       const refreshedLogs = await getFacultyStatusHistory(facultyUid);

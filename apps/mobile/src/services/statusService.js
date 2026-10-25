@@ -28,8 +28,8 @@ const mockStatusStore = {
 };
 
 export function getCachedFacultyStatus(facultyUid) {
-  const uid = facultyUid || 'demo-faculty-ecs-01';
-  return mockStatusStore[uid] || mockStatusStore['demo-faculty-ecs-01'] || null;
+  if (!facultyUid) return null;
+  return mockStatusStore[facultyUid] || null;
 }
 
 const mockLogsStore = {};
@@ -43,7 +43,10 @@ const mockLogsStore = {};
  * @returns {Promise<{ success: boolean, state: string, message: string, timestamp: number }>}
  */
 export async function broadcastStatus(facultyUid, state, customMessage = '') {
-  const uid = facultyUid || 'demo-faculty-ecs-01';
+  if (!facultyUid) {
+    throw new Error('Faculty UID is required to broadcast status');
+  }
+  const uid = facultyUid;
 
   // Validate state key
   if (!Object.values(STATUS_KEYS).includes(state)) {
@@ -68,12 +71,6 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
       const statusRef = ref(db, `status/${uid}`);
       await set(statusRef, statusPayload);
 
-      // Ensure both demo and auth UIDs are synced so students and faculty see identical live state
-      const linkedUid = uid === 'demo-faculty-ecs-01' ? 'dXXBBwdV1ugRCuHBZjQgFCX1PUH3' : 'demo-faculty-ecs-01';
-      try {
-        await set(ref(db, `status/${linkedUid}`), statusPayload);
-      } catch (_) {}
-
       // 2. Append to logs/{uid}
       try {
         const logPayload = {
@@ -83,12 +80,6 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
         };
         const logRef = push(ref(db, `logs/${uid}`));
         await set(logRef, logPayload);
-
-        // Also mirror log to linked UID so history stays 100% complete
-        try {
-          const mirrorRef = push(ref(db, `logs/${linkedUid}`));
-          await set(mirrorRef, logPayload);
-        } catch (_) {}
       } catch (logErr) {
         console.warn('Realtime DB log append note:', logErr.message);
       }
@@ -134,7 +125,8 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
  * @returns {Promise<{ state: string, message: string, updatedAt: number } | null>}
  */
 export async function getFacultyStatus(facultyUid) {
-  const uid = facultyUid || 'demo-faculty-ecs-01';
+  if (!facultyUid) return null;
+  const uid = facultyUid;
 
   const isPlaceholderKey = !process.env.EXPO_PUBLIC_FIREBASE_API_KEY || process.env.EXPO_PUBLIC_FIREBASE_API_KEY === 'demo-api-key';
 
@@ -152,8 +144,8 @@ export async function getFacultyStatus(facultyUid) {
   }
 
   return mockStatusStore[uid] || {
-    state: STATUS_KEYS.AVAILABLE,
-    message: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].defaultMessage,
+    state: STATUS_KEYS.OFF_CAMPUS,
+    message: '',
     updatedAt: Date.now(),
   };
 }
@@ -166,7 +158,8 @@ export async function getFacultyStatus(facultyUid) {
  * @returns {Function} unsubscribe
  */
 export function subscribeToFacultyStatus(facultyUid, onUpdate) {
-  const uid = facultyUid || 'demo-faculty-ecs-01';
+  if (!facultyUid) return () => {};
+  const uid = facultyUid;
   const statusRef = ref(db, `status/${uid}`);
 
   const unsubscribe = onValue(statusRef, (snapshot) => {
@@ -248,26 +241,26 @@ const DEFAULT_FALLBACK_LOGS = [
  * @returns {Promise<Array>} sorted newest first
  */
 export async function getFacultyStatusHistory(facultyUid) {
-  const uid = facultyUid || 'dXXBBwdV1ugRCuHBZjQgFCX1PUH3';
+  if (!facultyUid) return [];
+  const uid = facultyUid;
 
   try {
     const snapshot = await get(ref(db, `logs/${uid}`));
     if (snapshot.exists()) {
       const logs = parseLogsObject(snapshot.val());
-      if (logs.length > 0) return logs;
+      return logs;
     }
-
-    // Try secondary demo UID if specific UID has no records yet
-    const fallbackSnap = await get(ref(db, 'logs/dXXBBwdV1ugRCuHBZjQgFCX1PUH3'));
-    if (fallbackSnap.exists()) {
-      const fallbackLogs = parseLogsObject(fallbackSnap.val());
-      if (fallbackLogs.length > 0) return fallbackLogs;
+    if (uid === 'demo-faculty-ecs-01') {
+      return DEFAULT_FALLBACK_LOGS;
     }
+    return [];
   } catch (err) {
     console.warn('Realtime DB history fetch notice:', err.message);
+    if (uid === 'demo-faculty-ecs-01') {
+      return DEFAULT_FALLBACK_LOGS;
+    }
+    return [];
   }
-
-  return DEFAULT_FALLBACK_LOGS;
 }
 
 /**
@@ -277,7 +270,11 @@ export async function getFacultyStatusHistory(facultyUid) {
  * @returns {Function} unsubscribe
  */
 export function subscribeToFacultyStatusHistory(facultyUid, onUpdate) {
-  const uid = facultyUid || 'dXXBBwdV1ugRCuHBZjQgFCX1PUH3';
+  if (!facultyUid) {
+    onUpdate([]);
+    return () => {};
+  }
+  const uid = facultyUid;
   const logsRef = ref(db, `logs/${uid}`);
 
   const unsubscribe = onValue(
@@ -285,23 +282,22 @@ export function subscribeToFacultyStatusHistory(facultyUid, onUpdate) {
     (snapshot) => {
       if (snapshot.exists()) {
         const parsed = parseLogsObject(snapshot.val());
-        onUpdate(parsed.length > 0 ? parsed : DEFAULT_FALLBACK_LOGS);
+        onUpdate(parsed);
       } else {
-        // Check active fallback demo UID
-        get(ref(db, 'logs/dXXBBwdV1ugRCuHBZjQgFCX1PUH3'))
-          .then((fbSnap) => {
-            if (fbSnap.exists()) {
-              onUpdate(parseLogsObject(fbSnap.val()));
-            } else {
-              onUpdate(DEFAULT_FALLBACK_LOGS);
-            }
-          })
-          .catch(() => onUpdate(DEFAULT_FALLBACK_LOGS));
+        if (uid === 'demo-faculty-ecs-01') {
+          onUpdate(DEFAULT_FALLBACK_LOGS);
+        } else {
+          onUpdate([]);
+        }
       }
     },
     (err) => {
       console.warn('History subscription fallback:', err.message);
-      onUpdate(DEFAULT_FALLBACK_LOGS);
+      if (uid === 'demo-faculty-ecs-01') {
+        onUpdate(DEFAULT_FALLBACK_LOGS);
+      } else {
+        onUpdate([]);
+      }
     }
   );
 

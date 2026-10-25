@@ -8,6 +8,8 @@ import {
   getCachedFacultyStatus,
 } from '../services/statusService';
 
+import { STATUS_KEYS } from '@profping/shared';
+
 export const TIME_PRESETS = [
   { id: '15m', label: '15m', minutes: 15 },
   { id: '30m', label: '30m', minutes: 30 },
@@ -16,7 +18,7 @@ export const TIME_PRESETS = [
 ];
 
 const FacultyContext = createContext({
-  selectedStatusId: 'busy',
+  selectedStatusId: STATUS_KEYS.OFF_CAMPUS,
   setSelectedStatusId: () => {},
   customNote: '',
   setCustomNote: () => {},
@@ -44,13 +46,13 @@ const STORAGE_KEY_TIME = '@profping_faculty_status_time';
 
 export function FacultyProvider({ children }) {
   const { user } = useAuth();
-  const facultyUid = user?.uid || 'demo-faculty-ecs-01';
+  const facultyUid = user?.uid || null;
 
-  // Instant synchronous cache read - never displays outdated mock initializers
-  const initialCache = getCachedFacultyStatus(facultyUid);
+  // Instant synchronous cache read for this specific faculty member
+  const initialCache = facultyUid ? getCachedFacultyStatus(facultyUid) : null;
 
-  const [selectedStatusId, setSelectedStatusId] = useState(initialCache?.state || 'busy');
-  const [customNote, setCustomNote] = useState(initialCache?.message || 'Tutorial Checking in Room 528');
+  const [selectedStatusId, setSelectedStatusId] = useState(initialCache?.state || STATUS_KEYS.OFF_CAMPUS);
+  const [customNote, setCustomNote] = useState(initialCache?.message || '');
   const [lastUpdatedTime, setLastUpdatedTime] = useState(initialCache?.updatedAt || Date.now());
   const [statusLoaded, setStatusLoaded] = useState(false);
 
@@ -80,27 +82,32 @@ export function FacultyProvider({ children }) {
     return () => clearInterval(interval);
   }, [lastUpdatedTime]);
 
-  // Load persisted user preferences and cached status on mount
+  // Load user-scoped persisted preferences and cached status
   useEffect(() => {
+    if (!facultyUid) {
+      setSelectedStatusId(STATUS_KEYS.OFF_CAMPUS);
+      setCustomNote('');
+      return;
+    }
     async function loadPersistedSettings() {
       try {
-        const storedReset = await safeStorage.getItem(STORAGE_KEY_AUTO_RESET);
+        const storedReset = await safeStorage.getItem(`${STORAGE_KEY_AUTO_RESET}_${facultyUid}`);
         if (storedReset !== null) {
           setAutoResetEnabledState(JSON.parse(storedReset));
         }
-        const storedPreset = await safeStorage.getItem(STORAGE_KEY_PRESET);
+        const storedPreset = await safeStorage.getItem(`${STORAGE_KEY_PRESET}_${facultyUid}`);
         if (storedPreset !== null) {
           setSelectedPresetState(storedPreset);
         }
-        const storedStatus = await safeStorage.getItem(STORAGE_KEY_STATUS);
+        const storedStatus = await safeStorage.getItem(`${STORAGE_KEY_STATUS}_${facultyUid}`);
         if (storedStatus) {
           setSelectedStatusId(storedStatus);
         }
-        const storedNote = await safeStorage.getItem(STORAGE_KEY_NOTE);
+        const storedNote = await safeStorage.getItem(`${STORAGE_KEY_NOTE}_${facultyUid}`);
         if (storedNote !== null) {
           setCustomNote(storedNote);
         }
-        const storedTime = await safeStorage.getItem(STORAGE_KEY_TIME);
+        const storedTime = await safeStorage.getItem(`${STORAGE_KEY_TIME}_${facultyUid}`);
         if (storedTime) {
           setLastUpdatedTime(Number(storedTime));
         }
@@ -109,25 +116,32 @@ export function FacultyProvider({ children }) {
       }
     }
     loadPersistedSettings();
-  }, []);
+  }, [facultyUid]);
 
   // Real-time live status subscription from Firebase RTDB
   useEffect(() => {
+    if (!facultyUid) {
+      setSelectedStatusId(STATUS_KEYS.OFF_CAMPUS);
+      setCustomNote('');
+      setStatusLoaded(true);
+      return;
+    }
+
     let unsubStatus = null;
     try {
       unsubStatus = subscribeToFacultyStatus(facultyUid, (val) => {
         if (val) {
           if (val.state) {
             setSelectedStatusId(val.state);
-            safeStorage.setItem(STORAGE_KEY_STATUS, val.state);
+            safeStorage.setItem(`${STORAGE_KEY_STATUS}_${facultyUid}`, val.state);
           }
           if (typeof val.message === 'string') {
             setCustomNote(val.message);
-            safeStorage.setItem(STORAGE_KEY_NOTE, val.message);
+            safeStorage.setItem(`${STORAGE_KEY_NOTE}_${facultyUid}`, val.message);
           }
           if (val.updatedAt) {
             setLastUpdatedTime(val.updatedAt);
-            safeStorage.setItem(STORAGE_KEY_TIME, String(val.updatedAt));
+            safeStorage.setItem(`${STORAGE_KEY_TIME}_${facultyUid}`, String(val.updatedAt));
           }
           setStatusLoaded(true);
         }
@@ -141,6 +155,15 @@ export function FacultyProvider({ children }) {
 
   // Real-time live history logs subscription from Firebase RTDB
   useEffect(() => {
+    if (!facultyUid) {
+      setLogs([]);
+      setLogsLoaded(true);
+      return;
+    }
+
+    setLogs([]);
+    setLogsLoaded(false);
+
     let unsubLogs = null;
     try {
       unsubLogs = subscribeToFacultyStatusHistory(facultyUid, (liveLogs) => {
@@ -149,7 +172,10 @@ export function FacultyProvider({ children }) {
           setLogsLoaded(true);
         }
       });
-    } catch (_) {}
+    } catch (_) {
+      setLogs([]);
+      setLogsLoaded(true);
+    }
 
     return () => {
       if (typeof unsubLogs === 'function') unsubLogs();
@@ -159,13 +185,13 @@ export function FacultyProvider({ children }) {
   // Update autoResetEnabled and persist
   const setAutoResetEnabled = (val) => {
     setAutoResetEnabledState(val);
-    safeStorage.setItem(STORAGE_KEY_AUTO_RESET, JSON.stringify(val));
+    if (facultyUid) safeStorage.setItem(`${STORAGE_KEY_AUTO_RESET}_${facultyUid}`, JSON.stringify(val));
   };
 
   // Update preset and persist
   const setSelectedPreset = (val) => {
     setSelectedPresetState(val);
-    safeStorage.setItem(STORAGE_KEY_PRESET, val);
+    if (facultyUid) safeStorage.setItem(`${STORAGE_KEY_PRESET}_${facultyUid}`, val);
   };
 
   // Dynamic revert time computation
@@ -189,9 +215,11 @@ export function FacultyProvider({ children }) {
     setCustomNote(message);
     const now = Date.now();
     setLastUpdatedTime(now);
-    safeStorage.setItem(STORAGE_KEY_STATUS, backendState);
-    safeStorage.setItem(STORAGE_KEY_NOTE, message);
-    safeStorage.setItem(STORAGE_KEY_TIME, String(now));
+    if (facultyUid) {
+      safeStorage.setItem(`${STORAGE_KEY_STATUS}_${facultyUid}`, backendState);
+      safeStorage.setItem(`${STORAGE_KEY_NOTE}_${facultyUid}`, message);
+      safeStorage.setItem(`${STORAGE_KEY_TIME}_${facultyUid}`, String(now));
+    }
 
     // 2. Network broadcast to Firebase RTDB
     return await broadcastStatus(facultyUid, backendState, message);
