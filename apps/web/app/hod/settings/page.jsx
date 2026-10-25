@@ -17,7 +17,9 @@ export default function DepartmentSettingsPage() {
 
   // Form Fields
   const [hoursStart, setHoursStart] = useState('08:30');
-  const [hoursEnd, setHoursEnd] = useState('17:00');
+  const [hoursEnd, setHoursEnd] = useState('17:30');
+  const [deskTargetHours, setDeskTargetHours] = useState(3.0);
+  const [resetTime, setResetTime] = useState('17:01');
   const [autoResetOffCampus, setAutoResetOffCampus] = useState(true);
   const [hodOffice, setHodOffice] = useState('Room 301, 3rd Floor Main Building');
   const [hodIntercom, setHodIntercom] = useState('Ext. 3010');
@@ -27,16 +29,18 @@ export default function DepartmentSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       setLoading(true);
-      const data = await getDepartmentSettings(effectiveDept);
-      setSettings(data);
-      if (data) {
-        setHoursStart(data.hoursStart || '08:30');
-        setHoursEnd(data.hoursEnd || '17:00');
-        setAutoResetOffCampus(data.autoResetOffCampus !== false);
-        setHodOffice(data.hodOffice || 'Room 301, 3rd Floor Main Building');
-        setHodIntercom(data.hodIntercom || 'Ext. 3010');
-        setAllowCustomNotes(data.allowCustomStatusNotes !== false);
-        setRequireIntercom(data.requireIntercomOnDesk !== false);
+      try {
+        const res = await fetch('/api/admin/settings');
+        const data = await res.json();
+        if (data.success && data.settings) {
+          setHoursStart(data.settings.workStart || '08:30');
+          setHoursEnd(data.settings.workEnd || '17:30');
+          setDeskTargetHours(data.settings.deskTargetHours || 3.0);
+          setResetTime(data.settings.resetTime || '17:01');
+          setAutoResetOffCampus(data.settings.resetEnabled !== false);
+        }
+      } catch (e) {
+        console.warn('Failed to load institution settings:', e);
       }
       setLoading(false);
     }
@@ -110,18 +114,31 @@ export default function DepartmentSettingsPage() {
           padding: '24px',
           marginBottom: '20px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-            <Clock size={18} color="#492FB1" />
-            <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#1A191F' }}>
-              Official Department Hours & Automated Evening Reset
-            </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Clock size={18} color="#492FB1" />
+              <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#1A191F' }}>
+                Official Department Hours & Automated Evening Reset
+              </h3>
+            </div>
+            <span style={{
+              backgroundColor: '#E0D8FD',
+              color: '#190D4A',
+              border: '1px solid #C8C5D3',
+              fontSize: '11.5px',
+              fontWeight: 700,
+              padding: '3px 10px',
+              borderRadius: '9999px',
+            }}>
+              🔒 Set by the Principal
+            </span>
           </div>
 
           <p style={{ fontSize: '13px', color: '#4B4757', lineHeight: '1.5', marginBottom: '20px' }}>
-            A Firebase Cloud Function reads these hours daily. If automated reset is enabled, all faculty members in {effectiveDept} are automatically set to <strong style={{ color: '#DC2626' }}>🔴 Off Campus</strong> at the end of the department day (5:01 PM). This ensures students never visit an empty cabin due to a professor forgetting to update their status.
+            Working hours, daily desk-hour targets, and automated evening reset times are centrally governed by the Principal. These values are locked and read-only for department heads:
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
             <div>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#4B4757', marginBottom: '6px' }}>
                 DEPARTMENT OPENING TIME
@@ -129,16 +146,17 @@ export default function DepartmentSettingsPage() {
               <input
                 type="time"
                 value={hoursStart}
-                onChange={(e) => setHoursStart(e.target.value)}
+                disabled
                 style={{
                   width: '100%',
-                  backgroundColor: '#F4F2FA',
+                  backgroundColor: '#ECEAEF',
                   border: '1px solid #C8C5D3',
                   borderRadius: '10px',
                   padding: '9px 12px',
-                  color: '#1A191F',
+                  color: '#4B4757',
                   fontSize: '13px',
                   boxSizing: 'border-box',
+                  cursor: 'not-allowed',
                 }}
               />
             </div>
@@ -150,46 +168,92 @@ export default function DepartmentSettingsPage() {
               <input
                 type="time"
                 value={hoursEnd}
-                onChange={(e) => setHoursEnd(e.target.value)}
+                disabled
                 style={{
                   width: '100%',
-                  backgroundColor: '#F4F2FA',
+                  backgroundColor: '#ECEAEF',
                   border: '1px solid #C8C5D3',
                   borderRadius: '10px',
                   padding: '9px 12px',
-                  color: '#1A191F',
+                  color: '#4B4757',
                   fontSize: '13px',
                   boxSizing: 'border-box',
+                  cursor: 'not-allowed',
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#4B4757', marginBottom: '6px' }}>
+                DAILY DESK TARGET
+              </label>
+              <input
+                type="text"
+                value={`${deskTargetHours} Hours / Day`}
+                disabled
+                style={{
+                  width: '100%',
+                  backgroundColor: '#ECEAEF',
+                  border: '1px solid #C8C5D3',
+                  borderRadius: '10px',
+                  padding: '9px 12px',
+                  color: '#4B4757',
+                  fontSize: '13px',
+                  boxSizing: 'border-box',
+                  cursor: 'not-allowed',
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#4B4757', marginBottom: '6px' }}>
+                EVENING RESET TIME
+              </label>
+              <input
+                type="time"
+                value={resetTime}
+                disabled
+                style={{
+                  width: '100%',
+                  backgroundColor: '#ECEAEF',
+                  border: '1px solid #C8C5D3',
+                  borderRadius: '10px',
+                  padding: '9px 12px',
+                  color: '#4B4757',
+                  fontSize: '13px',
+                  boxSizing: 'border-box',
+                  cursor: 'not-allowed',
                 }}
               />
             </div>
           </div>
 
-          <label style={{
+          <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
-            backgroundColor: '#F4F2FA',
+            backgroundColor: '#ECEAEF',
             padding: '14px 18px',
             borderRadius: '12px',
             border: '1px solid #C8C5D3',
-            cursor: 'pointer',
           }}>
             <input
               type="checkbox"
               checked={autoResetOffCampus}
-              onChange={(e) => setAutoResetOffCampus(e.target.checked)}
-              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#492FB1' }}
+              disabled
+              style={{ width: '16px', height: '16px', cursor: 'not-allowed', accentColor: '#492FB1' }}
             />
             <div>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#1A191F' }}>
-                Enable Automated Daily Evening Status Reset
+                Automated Evening Status Reset
               </div>
               <div style={{ fontSize: '12px', color: '#4B4757' }}>
-                Triggers at 17:01 PM to wipe active statuses and prevent stale next-morning student visits.
+                {autoResetOffCampus
+                  ? `Active: Automatically wipes non-Off Campus statuses at ${resetTime} across campus.`
+                  : 'Disabled by the Principal.'}
               </div>
             </div>
-          </label>
+          </div>
         </div>
 
         {/* Section 2: Role Access Governance & Email Mapping */}
@@ -375,7 +439,7 @@ export default function DepartmentSettingsPage() {
             }}
           >
             <Save size={16} />
-            {saving ? 'Synchronizing Rules...' : 'Save Department Settings'}
+            {saving ? 'Synchronizing...' : 'Save Department Details'}
           </button>
         </div>
       </form>

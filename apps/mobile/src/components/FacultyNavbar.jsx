@@ -3,10 +3,14 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform, Animated, Dimension
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-const TABS = ['home', 'history', 'profile'];
+import { useAuth } from '../context/AuthContext';
 
 export default function FacultyNavbar({ activeTab = 'home' }) {
   const router = useRouter();
+  const { role } = useAuth();
+  const isHod = role === 'hod';
+  const TABS = isHod ? ['home', 'history', 'department', 'profile'] : ['home', 'history', 'profile'];
+
   const activeIndex = Math.max(0, TABS.indexOf(activeTab));
 
   const screenWidth = Dimensions.get('window').width;
@@ -41,6 +45,8 @@ export default function FacultyNavbar({ activeTab = 'home' }) {
         router.replace('/(faculty)');
       } else if (tabName === 'history') {
         router.replace('/(faculty)/history');
+      } else if (tabName === 'department') {
+        router.replace('/(faculty)/department');
       } else if (tabName === 'profile') {
         router.replace('/(faculty)/profile');
       }
@@ -104,10 +110,28 @@ export default function FacultyNavbar({ activeTab = 'home' }) {
         </Text>
       </TouchableOpacity>
 
+      {/* Department Tab (HOD Only) */}
+      {isHod && (
+        <TouchableOpacity
+          style={styles.floatingTabItem}
+          onPress={() => handleTabPress('department', 2)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={activeTab === 'department' ? 'business' : 'business-outline'}
+            size={19}
+            color={activeTab === 'department' ? '#4326B6' : '#64748B'}
+          />
+          <Text style={[styles.floatingTabLabel, activeTab === 'department' && styles.floatingTabLabelActive]}>
+            Dept
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Profile Tab */}
       <TouchableOpacity
         style={styles.floatingTabItem}
-        onPress={() => handleTabPress('profile', 2)}
+        onPress={() => handleTabPress('profile', isHod ? 3 : 2)}
         activeOpacity={0.7}
       >
         <Ionicons

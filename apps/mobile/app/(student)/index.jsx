@@ -26,6 +26,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_KEYS } from '@profping/shared';
 import { subscribeToLiveDirectory } from '../../src/services/directoryService';
 import { getStarredFacultyUids, toggleStarredFacultyUid } from '../../src/services/favoritesStorage';
+import { subscribeToStudentNotifyRequests, toggleNotifyWhenFree } from '../../src/services/notificationService';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 
 // ── Status Config Matching Campus Clarity Design System ──────────────────────
@@ -125,6 +126,25 @@ export default function StudentHomeScreen() {
   const handleToggleStar = async (facUid) => {
     const updated = await toggleStarredFacultyUid(facUid);
     setStarredUids(new Set(updated));
+  };
+
+  const [notifySet, setNotifySet] = useState(new Set());
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = subscribeToStudentNotifyRequests(user.uid, (set) => setNotifySet(set));
+    return unsub;
+  }, [user?.uid]);
+
+  const handleToggleNotify = async (facUid) => {
+    if (!user?.uid) return;
+    const isNowSet = await toggleNotifyWhenFree(facUid, user.uid);
+    setNotifySet((prev) => {
+      const next = new Set(prev);
+      if (isNowSet) next.add(facUid);
+      else next.delete(facUid);
+      return next;
+    });
   };
 
   // Subscribe to live directory
@@ -496,6 +516,33 @@ export default function StudentHomeScreen() {
                     )}
                   </View>
                 </View>
+
+                {/* Notify When Free Button (Section 1.5 & Section 2) */}
+                {state !== STATUS_KEYS.AVAILABLE && (
+                  <TouchableOpacity
+                    style={[
+                      styles.notifyMeBtn,
+                      notifySet.has(fac.uid) && styles.notifyMeBtnActive,
+                    ]}
+                    onPress={() => handleToggleNotify(fac.uid)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={notifySet.has(fac.uid) ? 'notifications' : 'notifications-outline'}
+                      size={12}
+                      color={notifySet.has(fac.uid) ? '#190D4A' : '#492FB1'}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text
+                      style={[
+                        styles.notifyMeBtnText,
+                        notifySet.has(fac.uid) && styles.notifyMeBtnTextActive,
+                      ]}
+                    >
+                      {notifySet.has(fac.uid) ? "You'll be notified" : 'Notify me'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             );
           }))}
@@ -983,4 +1030,30 @@ const styles = StyleSheet.create({
     color: '#B45309',
     letterSpacing: 0.3,
   },
+  notifyMeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FAF8FE',
+    borderWidth: 1,
+    borderColor: '#E9E7F1',
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  notifyMeBtnActive: {
+    backgroundColor: '#E0D8FD',
+    borderColor: '#C8C5D3',
+  },
+  notifyMeBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#492FB1',
+  },
+  notifyMeBtnTextActive: {
+    color: '#190D4A',
+    fontWeight: '700',
+  },
 });
+

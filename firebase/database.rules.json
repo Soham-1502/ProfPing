@@ -6,6 +6,10 @@
         ".write": false
       }
     },
+    "preapproved_users": {
+      ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/))",
+      ".write": "auth != null && auth.token.email_verified === true && (auth.token.role === 'principal' || auth.token.role === 'hod')"
+    },
     "faculty": {
       ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/))",
       ".write": false
@@ -24,6 +28,26 @@
         "$logId": {
           ".write": "auth != null && auth.token.email_verified === true && auth.token.email.matches(/.*@sfit\\.ac\\.in$/) && auth.uid === $uid && auth.token.role === 'faculty' && !data.exists()",
           ".validate": "newData.hasChildren(['state','timestamp']) && newData.child('timestamp').val() === now"
+        }
+      }
+    },
+    "studentAccess": {
+      "$uid": {
+        ".read": "auth != null && auth.token.email_verified === true && (auth.uid === $uid || auth.token.role === 'principal' || auth.token.role === 'hod')",
+        ".write": "auth != null && auth.token.email_verified === true && (auth.uid === $uid || auth.token.role === 'hod' || auth.token.role === 'principal')"
+      }
+    },
+    "settings": {
+      "institution": {
+        ".read": "auth != null && auth.token.email_verified === true && (auth.token.email.matches(/.*@student\\.sfit\\.ac\\.in$/) || auth.token.email.matches(/.*@sfit\\.ac\\.in$/))",
+        ".write": "auth != null && auth.token.email_verified === true && auth.token.role === 'principal'"
+      }
+    },
+    "notifyRequests": {
+      ".read": "auth != null && auth.token.email_verified === true",
+      "$facultyUid": {
+        "$studentUid": {
+          ".write": "auth != null && auth.token.email_verified === true && (auth.uid === $studentUid || auth.token.role === 'principal')"
         }
       }
     }

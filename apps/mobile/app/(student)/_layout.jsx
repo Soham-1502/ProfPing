@@ -3,12 +3,13 @@ import { View, StyleSheet } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 import AccessRevokedModal from '../../src/components/AccessRevokedModal';
+import DepartmentChooserModal from '../../src/components/DepartmentChooserModal';
 import { useAuth } from '../../src/context/AuthContext';
 
 export default function StudentLayout() {
   const pathname = usePathname();
   const router = useRouter();
-  const { accessRevoked, dismissRevocationAndLogout } = useAuth();
+  const { accessRevoked, dismissRevocationAndLogout, needsDepartmentSelection, declareStudentDepartment } = useAuth();
 
   // Determine active tab based on route pathname
   let activeTab = 'home';
@@ -34,6 +35,10 @@ export default function StudentLayout() {
       <AccessRevokedModal
         visible={accessRevoked}
         onConfirm={handleRevokedConfirm}
+      />
+      <DepartmentChooserModal
+        visible={needsDepartmentSelection}
+        onSelectDepartment={declareStudentDepartment}
       />
     </View>
   );

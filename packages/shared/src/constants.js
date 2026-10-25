@@ -73,3 +73,12 @@ export const INSTITUTION = Object.freeze({
   WORK_DAY_END_HOUR: 17,
   WORK_DAY_END_MINUTE: 30,
 });
+
+export const DEFAULT_INSTITUTION_SETTINGS = Object.freeze({
+  workStart: '08:30',
+  workEnd: '17:30',
+  deskTargetHours: 3.0,
+  resetTime: '17:01',
+  resetEnabled: true,
+});
+

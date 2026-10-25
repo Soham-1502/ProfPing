@@ -11,6 +11,8 @@ export default function FacultyLayout() {
   let activeTab = 'home';
   if (pathname.includes('/history')) {
     activeTab = 'history';
+  } else if (pathname.includes('/department')) {
+    activeTab = 'department';
   } else if (pathname.includes('/profile')) {
     activeTab = 'profile';
   }

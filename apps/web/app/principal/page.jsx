@@ -10,8 +10,9 @@ import LiveStatusTable from '../../src/components/LiveStatusTable';
 import DeskHourChart from '../../src/components/DeskHourChart';
 import DepartmentComparisonChart from '../../src/components/DepartmentComparisonChart';
 import RoleManagementTable from '../../src/components/RoleManagementTable';
+import InstitutionSettingsManager from '../../src/components/InstitutionSettingsManager';
 import { STATUS_KEYS, DEPARTMENTS } from '@profping/shared';
-import { LogOut, LayoutDashboard, UserCheck, ShieldCheck, CheckCircle2, Clock } from 'lucide-react';
+import { LogOut, LayoutDashboard, UserCheck, ShieldCheck, CheckCircle2, Clock, Sliders } from 'lucide-react';
 
 export default function PrincipalDashboardPage() {
   const { user, logout } = useAuth();
@@ -231,6 +232,28 @@ export default function PrincipalDashboardPage() {
               <ShieldCheck size={16} />
               Department HOD Management
             </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              style={{
+                backgroundColor: activeTab === 'settings' ? '#492FB1' : '#FFFFFF',
+                color: activeTab === 'settings' ? '#FFFFFF' : '#4B4757',
+                border: `1px solid ${activeTab === 'settings' ? '#492FB1' : '#C8C5D3'}`,
+                padding: '9px 18px',
+                borderRadius: '9999px',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: activeTab === 'settings' ? '0 4px 12px rgba(73, 47, 177, 0.2)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Sliders size={16} />
+              Institution Settings
+            </button>
           </div>
 
           {activeTab === 'overview' ? (
@@ -399,9 +422,12 @@ export default function PrincipalDashboardPage() {
                 title={selectedDept === 'ALL' ? 'Campus-Wide Faculty Availability Roster' : `${selectedDept} Faculty Availability Roster`}
               />
             </>
-          ) : (
+          ) : activeTab === 'roles' ? (
             /* Role Management Tab */
             <RoleManagementTable />
+          ) : (
+            /* Institution Settings Tab */
+            <InstitutionSettingsManager />
           )}
 
           {/* Privacy Respecting Footer */}

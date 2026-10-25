@@ -33,7 +33,7 @@ const AVATAR_PRESETS = [
 
 export default function FacultyProfileView({ onBack }) {
   const router = useRouter();
-  const { user, department, logout } = useAuth();
+  const { user, role, department, logout } = useAuth();
   const {
     autoResetEnabled,
     setAutoResetEnabled,
@@ -193,6 +193,13 @@ export default function FacultyProfileView({ onBack }) {
 
             {/* Faculty Meta (Institutional Data Locked) */}
             <View style={styles.heroMeta}>
+              {/* Role Badge */}
+              <View style={styles.roleBadgeBox}>
+                <Text style={styles.roleBadgeText}>
+                  {role === 'hod' ? 'HOD' : 'FACULTY'}
+                </Text>
+              </View>
+
               {/* Name (Locked) */}
               <TouchableOpacity
                 onPress={() => handleLockedFieldPress('Faculty Name')}
@@ -298,7 +305,10 @@ export default function FacultyProfileView({ onBack }) {
         </View>
 
         {/* ── CABIN & ACCOUNT DETAILS ─────────────────────────────────── */}
-        <Text style={styles.sectionHeading}>CABIN & ACCOUNT DETAILS</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionHeading}>CABIN & ACCOUNT DETAILS</Text>
+          <Text style={styles.hodNoticeText}>Details are set by your HOD</Text>
+        </View>
         <View style={styles.groupedCard}>
           {/* Cabin Assignment (Locked) */}
           <TouchableOpacity
@@ -850,14 +860,39 @@ const styles = StyleSheet.create({
   },
 
   // Section
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginBottom: 8,
+    marginHorizontal: 4,
+  },
   sectionHeading: {
     fontSize: 11.5,
     fontWeight: '700',
     color: '#64748B',
     letterSpacing: 0.8,
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
+  },
+  hodNoticeText: {
+    fontSize: 11,
+    color: '#777585',
+    fontWeight: '500',
+    fontStyle: 'italic',
+  },
+  roleBadgeBox: {
+    backgroundColor: '#E0D8FD',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  roleBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#190D4A',
+    letterSpacing: 0.5,
   },
   groupedCard: {
     backgroundColor: '#ffffff',

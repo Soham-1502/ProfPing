@@ -79,6 +79,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accessRevoked, setAccessRevoked] = useState(false);
+  const [needsDepartmentSelection, setNeedsDepartmentSelection] = useState(false);
 
   // Monitor real-time revocation status on user record
   useEffect(() => {
@@ -103,13 +104,41 @@ export function AuthProvider({ children }) {
     await logout();
   };
 
-  const updateStudentDepartment = async (newDept) => {
+  const declareStudentDepartment = async (newDept) => {
     setDepartment(newDept);
-    if (profile) setProfile((prev) => ({ ...prev, department: newDept }));
+    setNeedsDepartmentSelection(false);
+    if (profile) setProfile((prev) => ({ ...prev, department: newDept, hasDeclaredDept: true }));
     if (user?.uid) {
       try {
         await update(ref(db, `users/${user.uid}`), {
           department: newDept,
+          hasDeclaredDept: true,
+        });
+        await set(ref(db, `studentAccess/${user.uid}`), {
+          name: user.displayName || user.name || 'Student',
+          email: user.email,
+          department: newDept,
+          lastSeen: Date.now(),
+          revoked: false,
+        });
+      } catch (e) {
+        console.warn('Declare student department note:', e.message);
+      }
+    }
+  };
+
+  const updateStudentDepartment = async (newDept) => {
+    setDepartment(newDept);
+    if (profile) setProfile((prev) => ({ ...prev, department: newDept, hasDeclaredDept: true }));
+    if (user?.uid) {
+      try {
+        await update(ref(db, `users/${user.uid}`), {
+          department: newDept,
+          hasDeclaredDept: true,
+        });
+        await update(ref(db, `studentAccess/${user.uid}`), {
+          department: newDept,
+          lastSeen: Date.now(),
         });
       } catch (e) {
         console.warn('Update student department note:', e.message);
@@ -148,6 +177,10 @@ export function AuthProvider({ children }) {
           setDepartment(userDept);
           setClaims(userClaims);
           setProfile(resolved);
+
+          if (userRole === ROLES.STUDENT && (!resolved?.hasDeclaredDept || !userDept)) {
+            setNeedsDepartmentSelection(true);
+          }
         } catch (err) {
           console.error('Error in mobile auth token listener:', err);
           setUser(currentUser);
@@ -193,13 +226,14 @@ export function AuthProvider({ children }) {
               ? ROLES.PRINCIPAL
               : ROLES.STUDENT;
 
-          return {
-            uid: authUid,
-            email: normalized,
-            displayName: val.name || val.displayName || fallbackName,
-            role: resolvedRole,
-            department: val.department || inferredDept,
-          };
+            return {
+              uid: authUid,
+              email: normalized,
+              displayName: val.name || val.displayName || fallbackName,
+              role: resolvedRole,
+              department: val.department || null,
+              hasDeclaredDept: !!val.hasDeclaredDept,
+            };
         }
       } catch (err) {
         if (err.message?.includes('Access Revoked')) throw err;
@@ -334,7 +368,6 @@ export function AuthProvider({ children }) {
             email: normalized,
             displayName: fallbackName,
             role: ROLES.STUDENT,
-            department: inferredDept,
             is_active: true,
             lastLoginAt: Date.now(),
           });
@@ -346,7 +379,8 @@ export function AuthProvider({ children }) {
         email: normalized,
         displayName: fallbackName,
         role: ROLES.STUDENT,
-        department: inferredDept,
+        department: null,
+        hasDeclaredDept: false,
       };
     }
 
@@ -495,6 +529,8 @@ export function AuthProvider({ children }) {
         loading,
         accessRevoked,
         dismissRevocationAndLogout,
+        needsDepartmentSelection,
+        declareStudentDepartment,
         updateStudentDepartment,
         login,
         loginWithGoogle,

@@ -21,10 +21,8 @@ function NavigationRouter() {
       }
     } else {
       if (inAuthGroup || segments[0] === undefined) {
-        if (role === 'faculty') {
+        if (role === 'faculty' || role === 'hod') {
           router.replace('/(faculty)');
-        } else if (role === 'hod') {
-          router.replace('/(hod)');
         } else {
           router.replace('/(student)');
         }
@@ -47,6 +45,7 @@ function NavigationRouter() {
         headerTintColor: '#1A191F',
         headerTitleStyle: { fontWeight: 'bold' },
         headerShown: false,
+        animation: 'none',
       }}
     >
       <Stack.Screen name="(auth)/onboarding" options={{ title: 'ProfPing Onboarding', headerShown: false }} />

@@ -4,7 +4,7 @@
  * Calculates duration delta-t for faculty statuses clipped to working hours.
  */
 
-import { STATUS_KEYS, INSTITUTION } from './constants.js';
+import { STATUS_KEYS, INSTITUTION, DEFAULT_INSTITUTION_SETTINGS } from './constants.js';
 
 /**
  * @typedef {Object} StatusLog
@@ -13,22 +13,37 @@ import { STATUS_KEYS, INSTITUTION } from './constants.js';
  * @property {string} [message] - Optional status message
  */
 
+function parseTime(timeStr, defaultHour, defaultMinute) {
+  if (!timeStr || typeof timeStr !== 'string') return { hour: defaultHour, minute: defaultMinute };
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  return {
+    hour: isNaN(h) ? defaultHour : h,
+    minute: isNaN(m) ? defaultMinute : m,
+  };
+}
+
 /**
  * Clips an interval [start, end] to a specific date's institution working hours window.
  *
  * @param {number} startMs - Interval start epoch ms
  * @param {number} endMs - Interval end epoch ms
  * @param {Date} dateObj - The reference date
+ * @param {Object} [settings] - Institution settings with workStart and workEnd
  * @returns {number} Duration in milliseconds within working hours (0 if outside)
  */
-function clipToWorkingHours(startMs, endMs, dateObj) {
+function clipToWorkingHours(startMs, endMs, dateObj, settings = DEFAULT_INSTITUTION_SETTINGS) {
   if (startMs >= endMs) return 0;
 
+  const startConfig = parseTime(settings?.workStart, INSTITUTION.WORK_DAY_START_HOUR, INSTITUTION.WORK_DAY_START_MINUTE);
+  const endConfig = parseTime(settings?.workEnd, INSTITUTION.WORK_DAY_END_HOUR, INSTITUTION.WORK_DAY_END_MINUTE);
+
   const windowStart = new Date(dateObj);
-  windowStart.setHours(INSTITUTION.WORK_DAY_START_HOUR, INSTITUTION.WORK_DAY_START_MINUTE, 0, 0);
+  windowStart.setHours(startConfig.hour, startConfig.minute, 0, 0);
 
   const windowEnd = new Date(dateObj);
-  windowEnd.setHours(INSTITUTION.WORK_DAY_END_HOUR, INSTITUTION.WORK_DAY_END_MINUTE, 0, 0);
+  windowEnd.setHours(endConfig.hour, endConfig.minute, 0, 0);
 
   const effectiveStart = Math.max(startMs, windowStart.getTime());
   const effectiveEnd = Math.min(endMs, windowEnd.getTime());
@@ -46,9 +61,11 @@ function clipToWorkingHours(startMs, endMs, dateObj) {
  * @param {string | Date} targetDate - Date to compute (YYYY-MM-DD or Date object)
  * @param {Object} [options]
  * @param {number} [options.currentTimeMs] - Override for current time (used when computing for today)
+ * @param {Object} [options.settings] - Institutional settings (workStart, workEnd, deskTargetHours)
  * @returns {{ deskHours: number, stateDurationsHours: Record<string, number>, logCount: number }}
  */
 export function calculateDailyDeskHours(logs, targetDate, options = {}) {
+  const settings = options.settings || DEFAULT_INSTITUTION_SETTINGS;
   const target = new Date(targetDate);
   const startOfDay = new Date(target);
   startOfDay.setHours(0, 0, 0, 0);
@@ -56,8 +73,9 @@ export function calculateDailyDeskHours(logs, targetDate, options = {}) {
   const endOfDay = new Date(target);
   endOfDay.setHours(23, 59, 59, 999);
 
+  const endConfig = parseTime(settings?.workEnd, INSTITUTION.WORK_DAY_END_HOUR, INSTITUTION.WORK_DAY_END_MINUTE);
   const defaultWorkEnd = new Date(target);
-  defaultWorkEnd.setHours(INSTITUTION.WORK_DAY_END_HOUR, INSTITUTION.WORK_DAY_END_MINUTE, 0, 0);
+  defaultWorkEnd.setHours(endConfig.hour, endConfig.minute, 0, 0);
 
   const nowMs = options.currentTimeMs || Date.now();
   const isToday = new Date().toDateString() === target.toDateString();
@@ -144,7 +162,7 @@ export function calculateDailyDeskHours(logs, targetDate, options = {}) {
       }
     }
 
-    const durationMs = clipToWorkingHours(current.timestamp, intervalEnd, target);
+    const durationMs = clipToWorkingHours(current.timestamp, intervalEnd, target, settings);
     if (stateDurationsMs[current.state] !== undefined) {
       stateDurationsMs[current.state] += durationMs;
     }
