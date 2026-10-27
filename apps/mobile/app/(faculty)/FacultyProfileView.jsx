@@ -288,8 +288,12 @@ export default function FacultyProfileView({ onBack }) {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.headerTitleBlock}>
-            <Text style={styles.headerSub}>FACULTY ACCESS</Text>
-            <Text style={styles.headerTitle}>PROFILE</Text>
+            <Text style={styles.headerSub}>
+              {role === 'hod' ? 'HOD ACCESS • GOVERNANCE' : 'FACULTY ACCESS'}
+            </Text>
+            <Text style={styles.headerTitle}>
+              {role === 'hod' ? 'HOD PROFILE' : 'PROFILE'}
+            </Text>
           </View>
         </View>
       </View>
@@ -334,9 +338,12 @@ export default function FacultyProfileView({ onBack }) {
             {/* Faculty Meta (Institutional Data Locked) */}
             <View style={styles.heroMeta}>
               {/* Role Badge */}
-              <View style={styles.roleBadgeBox}>
-                <Text style={styles.roleBadgeText}>
-                  {role === 'hod' ? 'HOD' : 'FACULTY'}
+              <View style={[styles.roleBadgeBox, role === 'hod' && styles.roleBadgeBoxHod]}>
+                {role === 'hod' && (
+                  <FontAwesome5 name="user-tie" size={9} color="#4326B6" style={{ marginRight: 4 }} />
+                )}
+                <Text style={[styles.roleBadgeText, role === 'hod' && styles.roleBadgeTextHod]}>
+                  {role === 'hod' ? 'DEPARTMENT HOD' : 'FACULTY'}
                 </Text>
               </View>
 
@@ -447,7 +454,9 @@ export default function FacultyProfileView({ onBack }) {
         {/* ── CABIN & ACCOUNT DETAILS ─────────────────────────────────── */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionHeading}>CABIN & ACCOUNT DETAILS</Text>
-          <Text style={styles.hodNoticeText}>Institutional data set by HOD</Text>
+          <Text style={styles.hodNoticeText}>
+            {role === 'hod' ? 'Official institutional records • Verified by Registrar' : 'Institutional data set by HOD'}
+          </Text>
         </View>
         <View style={styles.groupedCard}>
           {/* Cabin Assignment (Locked) */}
@@ -520,6 +529,32 @@ export default function FacultyProfileView({ onBack }) {
             <FontAwesome5 name="lock" size={11} color="#94A3B8" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
+
+        {/* ── DEPARTMENT MANAGEMENT (HOD Only) ────────────────────────── */}
+        {role === 'hod' && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionHeading}>DEPARTMENT GOVERNANCE</Text>
+              <Text style={styles.hodNoticeText}>{currentDept} Department Controls</Text>
+            </View>
+            <View style={styles.groupedCard}>
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => router.push('/(faculty)/department')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.iconBoxPurple}>
+                  <FontAwesome5 name="users-cog" size={13} color="#4326B6" />
+                </View>
+                <View style={styles.menuLabelCol}>
+                  <Text style={styles.menuLabel}>Department Faculty & Desk Overview</Text>
+                  <Text style={styles.menuSubLabel}>View live faculty pings & desk hours compliance</Text>
+                </View>
+                <FontAwesome5 name="chevron-right" size={11} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
         {/* ── PREFERENCES (Editable by Faculty) ───────────────────────── */}
         <Text style={styles.sectionHeading}>APP PREFERENCES</Text>
@@ -1045,12 +1080,31 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignSelf: 'flex-start',
     marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  roleBadgeBoxHod: {
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
   roleBadgeText: {
     fontSize: 10,
     fontWeight: '800',
     color: '#190D4A',
     letterSpacing: 0.5,
+  },
+  roleBadgeTextHod: {
+    color: '#4326B6',
+  },
+  iconBoxPurple: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   groupedCard: {
     backgroundColor: '#ffffff',

@@ -192,25 +192,25 @@ export default function StudentHomeScreen() {
   // Filter chips
   const filterChips = [
     { id: 'ALL', label: 'All Faculty' },
+    { id: 'HOD', label: 'HODs' },
     { id: 'STARRED', label: 'Starred', isStar: true },
-    { id: 'ECS', label: 'ECS Dept' },
     { id: 'CMPN', label: 'Comp Sci' },
     { id: 'INFT', label: 'IT Dept' },
+    { id: 'ECS', label: 'ECS Dept' },
     { id: 'EXTC', label: 'EXTC Dept' },
-    { id: 'Robotics', label: 'Robotics' },
   ];
 
   // Filtered List
   const filteredList = useMemo(() => {
     return facultyList.filter((item) => {
       if (activeFilter === 'STARRED' && !starredUids.has(item.uid)) return false;
-      if (activeFilter !== 'ALL' && activeFilter !== 'STARRED') {
+      if (activeFilter === 'HOD' && !item.isHod && item.role !== 'hod' && !(item.designation || '').toLowerCase().includes('hod')) return false;
+      if (activeFilter !== 'ALL' && activeFilter !== 'STARRED' && activeFilter !== 'HOD') {
         const itemDept = (item.department || '').toUpperCase();
         if (activeFilter === 'CMPN' && !itemDept.includes('CMPN') && !itemDept.includes('COMP')) return false;
         if (activeFilter === 'ECS' && !itemDept.includes('ECS')) return false;
         if (activeFilter === 'INFT' && !itemDept.includes('INFT') && !itemDept.includes('IT')) return false;
         if (activeFilter === 'EXTC' && !itemDept.includes('EXTC')) return false;
-        if (activeFilter === 'Robotics' && !itemDept.includes('ROBOT')) return false;
       }
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -219,7 +219,8 @@ export default function StudentHomeScreen() {
         (item.designation || '').toLowerCase().includes(q) ||
         (item.status?.message || '').toLowerCase().includes(q) ||
         (item.cabin || '').toLowerCase().includes(q) ||
-        (item.department || '').toLowerCase().includes(q)
+        (item.department || '').toLowerCase().includes(q) ||
+        ((item.isHod || item.role === 'hod' || (item.designation || '').toLowerCase().includes('hod')) && 'hod'.includes(q))
       );
     });
   }, [facultyList, activeFilter, searchQuery, starredUids]);
@@ -418,11 +419,21 @@ export default function StudentHomeScreen() {
                 options: [
                   {
                     id: 'ALL',
-                    title: 'All Departments',
+                    title: 'All Faculty & HODs',
                     subtitle: 'Show all faculty across campus',
                     selected: activeFilter === 'ALL',
                     onPress: () => {
                       setActiveFilter('ALL');
+                      closeAlert();
+                    },
+                  },
+                  {
+                    id: 'HOD',
+                    title: 'Department HODs (All Branches)',
+                    subtitle: 'CMPN, INFT, ECS, EXTC Department Heads',
+                    selected: activeFilter === 'HOD',
+                    onPress: () => {
+                      setActiveFilter('HOD');
                       closeAlert();
                     },
                   },
@@ -500,16 +511,24 @@ export default function StudentHomeScreen() {
                   <View style={styles.cardHeaderRow}>
                     {/* Avatar */}
                     <View style={styles.cardAvatarWrapper}>
-                      <View style={styles.cardAvatarPlaceholder}>
-                        <Text style={styles.cardAvatarPlaceholderText}>
-                          {(fac.name || 'F')
-                            .split(' ')
-                            .filter(Boolean)
-                            .map((p) => p[0])
-                            .slice(0, 2)
-                            .join('')}
-                        </Text>
-                      </View>
+                      {fac.photoURL || fac.photoUrl ? (
+                        <Image
+                          source={{ uri: fac.photoURL || fac.photoUrl }}
+                          style={styles.cardAvatarPhoto}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.cardAvatarPlaceholder}>
+                          <Text style={styles.cardAvatarPlaceholderText}>
+                            {(fac.name || 'F')
+                              .split(' ')
+                              .filter(Boolean)
+                              .map((p) => p[0])
+                              .slice(0, 2)
+                              .join('')}
+                          </Text>
+                        </View>
+                      )}
                       <View style={[styles.cardStatusDot, { backgroundColor: badge.dotColor }]} />
                     </View>
 
@@ -517,12 +536,18 @@ export default function StudentHomeScreen() {
                     <View style={styles.cardInfoCol}>
                       <View style={styles.nameRow}>
                         <Text style={styles.facultyNameText}>{fac.name}</Text>
+                        {(fac.isHod || fac.role === 'hod' || (fac.designation || '').toLowerCase().includes('hod')) && (
+                          <View style={styles.hodCardBadge}>
+                            <FontAwesome5 name="user-tie" size={8} color="#4326B6" style={{ marginRight: 3 }} />
+                            <Text style={styles.hodCardBadgeText}>HOD</Text>
+                          </View>
+                        )}
                         {fac.isVerified && (
                           <MaterialCommunityIcons
                             name="check-decagram"
-                            size={15}
+                            size={14}
                             color="#4326B6"
-                            style={{ marginLeft: 5 }}
+                            style={{ marginLeft: 4 }}
                           />
                         )}
                       </View>
@@ -1040,6 +1065,26 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 2,
+    flexWrap: 'wrap',
+  },
+  hodCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    marginLeft: 6,
+  },
+  hodCardBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 9.5,
+    color: '#4326B6',
+    letterSpacing: 0.4,
   },
   facultyNameText: {
     fontFamily: 'Inter_700Bold',

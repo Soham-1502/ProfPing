@@ -114,7 +114,7 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
     Inter_800ExtraBold,
   });
 
-  const { user, department, logout } = useAuth();
+  const { user, role, department, logout } = useAuth();
   const router = useRouter();
 
   // Persistent Faculty Broadcaster Context
@@ -274,7 +274,8 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
     user?.displayName ||
     user?.name ||
     (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Faculty Member');
-  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • SFIT';
+  const designation = role === 'hod' ? 'Professor & HOD' : 'Associate Professor';
+  const facultyDept = department ? `${designation} • ${department} Dept` : `${designation} • SFIT`;
 
   if (!fontsLoaded) {
     return (
@@ -298,7 +299,9 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
                   style={styles.headerLogoImage}
                   resizeMode="contain"
                 />
-                <Text style={styles.headerSubtitle}>FACULTY BROADCASTER</Text>
+                <Text style={styles.headerSubtitle}>
+                  {role === 'hod' ? 'HOD BROADCASTER' : 'FACULTY BROADCASTER'}
+                </Text>
               </View>
             </View>
 
@@ -336,9 +339,17 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
 
               {/* Profile Details */}
               <View style={styles.profileDetails}>
-                <Text style={styles.profileName} numberOfLines={1}>
-                  {facultyName}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Text style={styles.profileName} numberOfLines={1}>
+                    {facultyName}
+                  </Text>
+                  {role === 'hod' && (
+                    <View style={styles.hodBroadcasterBadge}>
+                      <FontAwesome5 name="user-tie" size={8} color="#4326B6" style={{ marginRight: 3 }} />
+                      <Text style={styles.hodBroadcasterBadgeText}>HOD</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.profileTitle} numberOfLines={1}>
                   {facultyDept}
                 </Text>
@@ -346,10 +357,30 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
                 {/* Room / Desk Location Pill */}
                 <View style={styles.locationPill}>
                   <FontAwesome5 name="map-marker-alt" size={10} color="#4326B6" style={{ marginRight: 5 }} />
-                  <Text style={styles.locationText}>Hall No. 301 • Table 1</Text>
+                  <Text style={styles.locationText}>
+                    {role === 'hod' ? `Room 301 • ${department || 'CMPN'} HOD Office` : 'Hall No. 301 • Table 1'}
+                  </Text>
                 </View>
               </View>
             </TouchableOpacity>
+
+            {/* HOD Quick Access to Department Overview */}
+            {role === 'hod' && (
+              <TouchableOpacity
+                style={styles.hodQuickLinkBar}
+                onPress={() => router.push('/(faculty)/department')}
+                activeOpacity={0.85}
+              >
+                <View style={styles.hodQuickLinkIconBox}>
+                  <FontAwesome5 name="users-cog" size={13} color="#4326B6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.hodQuickLinkTitle}>Department Overview ({department || 'CMPN'})</Text>
+                  <Text style={styles.hodQuickLinkSub}>View all faculty presence & desk hours</Text>
+                </View>
+                <FontAwesome5 name="chevron-right" size={12} color="#4326B6" />
+              </TouchableOpacity>
+            )}
 
             {/* ── 3. LIVE STATUS HERO BANNER ───────────────────────────── */}
             <View
@@ -758,6 +789,61 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
     color: '#0F172A',
+  },
+  hodBroadcasterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    marginLeft: 6,
+  },
+  hodBroadcasterBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 9.5,
+    color: '#4326B6',
+    letterSpacing: 0.4,
+  },
+  hodQuickLinkBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#EDE9FE',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  hodQuickLinkIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  hodQuickLinkTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 13,
+    color: '#1E1B4B',
+  },
+  hodQuickLinkSub: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
   },
   profileTitle: {
     fontFamily: 'Inter_500Medium',
