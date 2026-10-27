@@ -21,6 +21,7 @@ export default function FacultyDirectoryPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingFaculty, setEditingFaculty] = useState(null);
   const [actionSuccess, setActionSuccess] = useState('');
+  const [actionError, setActionError] = useState('');
   const [facultyToDelete, setFacultyToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -143,10 +144,12 @@ export default function FacultyDirectoryPage() {
 
       await deleteFacultyMember(facultyToDelete.uid, facultyToDelete.email, callerMeta);
       setActionSuccess(`Faculty member "${facultyToDelete.name}" removed. Active sessions were revoked and logs preserved.`);
+      setActionError('');
       setFacultyToDelete(null);
       setTimeout(() => setActionSuccess(''), 4500);
     } catch (err) {
-      alert('Failed to delete faculty member: ' + err.message);
+      setActionError('Failed to delete faculty member: ' + err.message);
+      setTimeout(() => setActionError(''), 5000);
     } finally {
       setDeleting(false);
     }
@@ -223,6 +226,26 @@ export default function FacultyDirectoryPage() {
         }}>
           <CheckCircle2 size={16} />
           {actionSuccess}
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {actionError && (
+        <div style={{
+          backgroundColor: '#FEE2E2',
+          border: '1px solid rgba(220, 38, 38, 0.3)',
+          borderRadius: '12px',
+          padding: '12px 18px',
+          color: '#991B1B',
+          fontSize: '13px',
+          fontWeight: 600,
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <AlertCircle size={16} />
+          {actionError}
         </div>
       )}
 

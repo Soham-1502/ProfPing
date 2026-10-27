@@ -28,6 +28,7 @@ import { subscribeToLiveDirectory } from '../../src/services/directoryService';
 import { getStarredFacultyUids, toggleStarredFacultyUid } from '../../src/services/favoritesStorage';
 import { subscribeToStudentNotifyRequests, toggleNotifyWhenFree } from '../../src/services/notificationService';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
+import ThemedAlertModal from '../../src/components/ThemedAlertModal';
 
 // ── Status Config Matching Campus Clarity Design System ──────────────────────
 const BADGE_MAP = {
@@ -117,6 +118,39 @@ export default function StudentHomeScreen() {
   }, [params?.filter]);
 
   const [starredUids, setStarredUids] = useState(new Set());
+
+  // Themed Alert State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    icon: null,
+    primaryText: 'OK',
+    secondaryText: null,
+    onPrimaryPress: null,
+    onSecondaryPress: null,
+    options: null,
+  });
+
+  const showAlert = (config) => {
+    setAlertConfig({
+      visible: true,
+      title: config.title || '',
+      message: config.message || '',
+      type: config.type || 'info',
+      icon: config.icon || null,
+      primaryText: config.primaryText || 'OK',
+      secondaryText: config.secondaryText || null,
+      onPrimaryPress: config.onPrimaryPress || null,
+      onSecondaryPress: config.onSecondaryPress || null,
+      options: config.options || null,
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   // Load persistent student starred faculty
   useEffect(() => {
@@ -251,7 +285,13 @@ export default function StudentHomeScreen() {
           />
           <TouchableOpacity
             onPress={() =>
-              Alert.alert('Voice Search', 'Voice recognition listening for professor name...')
+              showAlert({
+                title: 'Voice Search',
+                message: 'Voice recognition is ready. Speak clearly to find professors, cabins, or departments.',
+                type: 'info',
+                icon: 'mic-outline',
+                primaryText: 'Start Listening',
+              })
             }
           >
             <FontAwesome5 name="microphone" size={14} color="#94A3B8" />
@@ -369,16 +409,65 @@ export default function StudentHomeScreen() {
           <TouchableOpacity
             style={styles.filterBtn}
             onPress={() => {
-              Alert.alert(
-                'Department Filter',
-                'Select filter options',
-                [
-                  { text: 'All Faculty', onPress: () => setActiveFilter('ALL') },
-                  { text: 'ECS Dept', onPress: () => setActiveFilter('ECS') },
-                  { text: 'Comp Sci', onPress: () => setActiveFilter('CMPN') },
-                  { text: 'Cancel', style: 'cancel' },
-                ]
-              );
+              showAlert({
+                title: 'Department Filter',
+                message: 'Filter faculty directory by engineering branch:',
+                type: 'info',
+                icon: 'funnel-outline',
+                primaryText: 'Done',
+                options: [
+                  {
+                    id: 'ALL',
+                    title: 'All Departments',
+                    subtitle: 'Show all faculty across campus',
+                    selected: activeFilter === 'ALL',
+                    onPress: () => {
+                      setActiveFilter('ALL');
+                      closeAlert();
+                    },
+                  },
+                  {
+                    id: 'CMPN',
+                    title: 'Computer Engineering (CMPN)',
+                    subtitle: 'Faculty in Computer Engineering',
+                    selected: activeFilter === 'CMPN',
+                    onPress: () => {
+                      setActiveFilter('CMPN');
+                      closeAlert();
+                    },
+                  },
+                  {
+                    id: 'INFT',
+                    title: 'Information Technology (INFT)',
+                    subtitle: 'Faculty in Information Technology',
+                    selected: activeFilter === 'INFT',
+                    onPress: () => {
+                      setActiveFilter('INFT');
+                      closeAlert();
+                    },
+                  },
+                  {
+                    id: 'EXTC',
+                    title: 'Electronics & Telecom (EXTC)',
+                    subtitle: 'Faculty in Electronics & Telecom',
+                    selected: activeFilter === 'EXTC',
+                    onPress: () => {
+                      setActiveFilter('EXTC');
+                      closeAlert();
+                    },
+                  },
+                  {
+                    id: 'ECS',
+                    title: 'Electronics & Computer Sci (ECS)',
+                    subtitle: 'Faculty in Electronics & Computer Sci',
+                    selected: activeFilter === 'ECS',
+                    onPress: () => {
+                      setActiveFilter('ECS');
+                      closeAlert();
+                    },
+                  },
+                ],
+              });
             }}
           >
             <FontAwesome5 name="sliders-h" size={11} color="#475569" style={{ marginRight: 5 }} />
@@ -550,6 +639,9 @@ export default function StudentHomeScreen() {
 
         <View style={{ height: 110 }} />
       </ScrollView>
+
+      {/* ── THEMED INSTITUTIONAL ALERT MODAL ───────────────────────── */}
+      <ThemedAlertModal {...alertConfig} onClose={closeAlert} />
     </View>
   );
 }

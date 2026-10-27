@@ -21,6 +21,7 @@ import safeStorage from '../../src/services/safeStorage';
 import { useAuth } from '../../src/context/AuthContext';
 import { useFaculty } from '../../src/context/FacultyContext';
 import LogoutModal from '../../src/components/LogoutModal';
+import ThemedAlertModal from '../../src/components/ThemedAlertModal';
 
 const STORAGE_KEY_OFFICE_HOURS = '@profping_faculty_office_hours';
 const STORAGE_KEY_INTERCOM = '@profping_faculty_intercom';
@@ -60,6 +61,37 @@ export default function FacultyProfileView({ onBack }) {
   const [editPhotoModalVisible, setEditPhotoModalVisible] = useState(false);
   const [tempPhotoInput, setTempPhotoInput] = useState('');
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
+  // Themed Alert State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    icon: null,
+    primaryText: 'OK',
+    secondaryText: null,
+    onPrimaryPress: null,
+    onSecondaryPress: null,
+  });
+
+  const showAlert = (config) => {
+    setAlertConfig({
+      visible: true,
+      title: config.title || '',
+      message: config.message || '',
+      type: config.type || 'info',
+      icon: config.icon || null,
+      primaryText: config.primaryText || 'OK',
+      secondaryText: config.secondaryText || null,
+      onPrimaryPress: config.onPrimaryPress || null,
+      onSecondaryPress: config.onSecondaryPress || null,
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   // ── Sync with Firebase Realtime Database ─────────────────────────────────
   useEffect(() => {
@@ -204,10 +236,12 @@ export default function FacultyProfileView({ onBack }) {
 
   // Lock Handler for Core Institutional Data
   const handleLockedFieldPress = (fieldName) => {
-    Alert.alert(
-      'Institutional Data Locked',
-      `"${fieldName}" is verified institutional data managed centrally by the Registrar and Department HOD.\n\nChanges must be requested through administrative channels.`
-    );
+    showAlert({
+      title: 'Institutional Data Locked',
+      message: `"${fieldName}" is verified institutional data managed centrally by the Registrar and Department HOD.\n\nChanges must be requested through administrative channels.`,
+      type: 'locked',
+      primaryText: 'Understood',
+    });
   };
 
   const liveStatus = selectedStatusId;
@@ -552,7 +586,14 @@ export default function FacultyProfileView({ onBack }) {
           {/* Feedback & Support */}
           <TouchableOpacity
             style={styles.menuRow}
-            onPress={() => Alert.alert('Feedback & Support', 'Reach out to IT Support at support@sfit.ac.in or call Ext. 100.')}
+            onPress={() =>
+              showAlert({
+                title: 'Campus IT Support',
+                message: 'Reach out to IT Support at support@sfit.ac.in or call campus Ext. 100 for faculty workstation & account assistance.',
+                type: 'info',
+                primaryText: 'Done',
+              })
+            }
             activeOpacity={0.7}
           >
             <View style={styles.iconBoxSlate}>
@@ -739,6 +780,9 @@ export default function FacultyProfileView({ onBack }) {
         onConfirm={handleConfirmLogout}
         roleLabel="faculty"
       />
+
+      {/* ── THEMED INSTITUTIONAL ALERT MODAL ─────────────────────────── */}
+      <ThemedAlertModal {...alertConfig} onClose={closeAlert} />
     </View>
   );
 }
@@ -1115,33 +1159,36 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(26, 16, 68, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalDialog: {
     width: '100%',
+    maxWidth: 360,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    elevation: 8,
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
   },
   modalHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   modalTitle: {
     fontFamily: 'Inter_700Bold',
     fontWeight: '700',
     fontSize: 17,
-    color: '#0F172A',
+    color: '#1E1B4B',
   },
   modalSubtitle: {
     fontFamily: 'Inter_500Medium',
@@ -1151,15 +1198,15 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modalInput: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
+    backgroundColor: '#FAF8FE',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
     borderRadius: 12,
     paddingHorizontal: 14,
     height: 48,
     fontFamily: 'Inter_600SemiBold',
     fontSize: 14,
-    color: '#0F172A',
+    color: '#1E1B4B',
     marginBottom: 14,
   },
   presetChipRow: {
@@ -1171,8 +1218,10 @@ const styles = StyleSheet.create({
   presetChip: {
     backgroundColor: '#EDE9FE',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
   presetChipText: {
     fontFamily: 'Inter_600SemiBold',
@@ -1186,14 +1235,18 @@ const styles = StyleSheet.create({
   },
   modalCancelBtn: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   modalCancelBtnFull: {
     width: '100%',
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     marginTop: 12,
@@ -1205,9 +1258,16 @@ const styles = StyleSheet.create({
   },
   modalSaveBtn: {
     paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: '#4326B6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   modalSaveText: {
     fontFamily: 'Inter_700Bold',

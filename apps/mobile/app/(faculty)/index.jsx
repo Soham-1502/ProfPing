@@ -28,6 +28,8 @@ import { useAuth } from '../../src/context/AuthContext';
 import { STATUS_KEYS } from '@profping/shared';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import FacultyProfileView from './FacultyProfileView';
+import LogoutModal from '../../src/components/LogoutModal';
+import ThemedAlertModal from '../../src/components/ThemedAlertModal';
 
 // ── 4 Core Status Card Configs (Campus Clarity System) ─────────────────────
 const STATUS_CARDS = [
@@ -143,6 +145,44 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
 
   // Active bottom nav tab: 'home' | 'history' | 'profile'
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
+  // Themed Alert State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    icon: null,
+    primaryText: 'OK',
+    secondaryText: null,
+    onPrimaryPress: null,
+    onSecondaryPress: null,
+  });
+
+  const showAlert = (config) => {
+    setAlertConfig({
+      visible: true,
+      title: config.title || '',
+      message: config.message || '',
+      type: config.type || 'info',
+      icon: config.icon || null,
+      primaryText: config.primaryText || 'OK',
+      secondaryText: config.secondaryText || null,
+      onPrimaryPress: config.onPrimaryPress || null,
+      onSecondaryPress: config.onSecondaryPress || null,
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleConfirmLogout = async () => {
+    setLogoutModalVisible(false);
+    await logout();
+    router.replace('/(auth)/login');
+  };
 
   // Ensure any timeout is cleared on unmount
   useEffect(() => {
@@ -211,7 +251,11 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
       }
     } catch (err) {
       console.error('Broadcast failed:', err);
-      Alert.alert('Broadcast Error', 'Failed to update campus broadcast.');
+      showAlert({
+        title: 'Broadcast Error',
+        message: 'Failed to update campus broadcast. Please verify your connection.',
+        type: 'error',
+      });
     } finally {
       setBroadcasting(false);
     }
@@ -221,17 +265,7 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
     if (activeTab === 'profile') {
       setActiveTab('home');
     } else {
-      Alert.alert('Faculty Sign Out', 'Do you want to log out of the Faculty Broadcaster session?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/(auth)/login');
-          },
-        },
-      ]);
+      setLogoutModalVisible(true);
     }
   };
 
@@ -561,6 +595,17 @@ export default function FacultyHomeScreen({ initialTab = 'home' }) {
             )}
 
           </ScrollView>
+
+      {/* ── THEMED LOGOUT MODAL ────────────────────────────────────── */}
+      <LogoutModal
+        visible={logoutModalVisible}
+        onCancel={() => setLogoutModalVisible(false)}
+        onConfirm={handleConfirmLogout}
+        roleLabel="faculty"
+      />
+
+      {/* ── THEMED INSTITUTIONAL ALERT MODAL ───────────────────────── */}
+      <ThemedAlertModal {...alertConfig} onClose={closeAlert} />
     </View>
   );
 }

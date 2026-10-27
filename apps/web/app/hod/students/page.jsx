@@ -40,7 +40,8 @@ export default function StudentAccessControlPage() {
       setStudentToToggle(null);
       setTimeout(() => setToastMessage(''), 5000);
     } catch (err) {
-      alert('Failed to toggle student access: ' + err.message);
+      setToastMessage('Error: Failed to toggle student access: ' + err.message);
+      setTimeout(() => setToastMessage(''), 5000);
     } finally {
       setToggling(false);
     }

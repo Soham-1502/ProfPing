@@ -14,6 +14,7 @@ export default function DepartmentSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Form Fields
   const [hoursStart, setHoursStart] = useState('08:30');
@@ -65,9 +66,11 @@ export default function DepartmentSettingsPage() {
 
       await updateDepartmentSettings(effectiveDept, payload);
       setSuccessMessage('Department settings and automated reset rules successfully synchronized to Firebase.');
+      setErrorMessage('');
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
-      alert('Failed to save department settings: ' + err.message);
+      setErrorMessage('Failed to save department settings: ' + err.message);
+      setTimeout(() => setErrorMessage(''), 5000);
     } finally {
       setSaving(false);
     }
@@ -101,6 +104,25 @@ export default function DepartmentSettingsPage() {
         }}>
           <CheckCircle2 size={16} />
           {successMessage}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div style={{
+          backgroundColor: '#FEE2E2',
+          border: '1px solid rgba(220, 38, 38, 0.3)',
+          borderRadius: '12px',
+          padding: '12px 18px',
+          color: '#991B1B',
+          fontSize: '13px',
+          fontWeight: 600,
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+        }}>
+          <AlertCircle size={16} />
+          {errorMessage}
         </div>
       )}
 

@@ -85,7 +85,7 @@ export default function DepartmentChooserModal({ visible, onSelectDepartment }) 
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 12, 34, 0.75)',
+    backgroundColor: 'rgba(26, 16, 68, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

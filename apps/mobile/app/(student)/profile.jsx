@@ -27,6 +27,7 @@ import {
 import { useAuth } from '../../src/context/AuthContext';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 import LogoutModal from '../../src/components/LogoutModal';
+import ThemedAlertModal from '../../src/components/ThemedAlertModal';
 import { getStarredFacultyUids } from '../../src/services/favoritesStorage';
 
 const DEPARTMENTS = [
@@ -48,6 +49,38 @@ export default function StudentProfilePage() {
   const { user, profile, department, logout, updateStudentProfile, updateStudentDepartment } = useAuth();
   const router = useRouter();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
+  // Themed Alert & Dialog State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    icon: null,
+    primaryText: 'OK',
+    secondaryText: null,
+    onPrimaryPress: null,
+    onSecondaryPress: null,
+    options: null,
+  });
+
+  const showAlert = (config) => {
+    setAlertConfig({
+      visible: true,
+      primaryText: 'OK',
+      type: 'info',
+      icon: null,
+      secondaryText: null,
+      onPrimaryPress: null,
+      onSecondaryPress: null,
+      options: null,
+      ...config,
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   // Edit Profile Modal State
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -96,13 +129,21 @@ export default function StudentProfilePage() {
   const handleSaveProfile = async () => {
     const trimmedName = editName.trim();
     if (!trimmedName) {
-      Alert.alert('Required Field', 'Please enter your full name.');
+      showAlert({
+        title: 'Required Field',
+        message: 'Please enter your full name before saving.',
+        type: 'warning',
+      });
       return;
     }
 
     const trimmedPid = editPid.trim();
     if (trimmedPid && !/^\d{6}$/.test(trimmedPid)) {
-      Alert.alert('Invalid PID', 'PID must be exactly 6 numeric digits (e.g., 221045).');
+      showAlert({
+        title: 'Invalid PID',
+        message: 'PID must be exactly 6 numeric digits (e.g., 221045).',
+        type: 'error',
+      });
       return;
     }
 
@@ -117,25 +158,40 @@ export default function StudentProfilePage() {
       });
       setSaving(false);
       setEditModalVisible(false);
-      Alert.alert('Profile Updated', 'Your profile details have been saved successfully.');
+      showAlert({
+        title: 'Profile Updated',
+        message: 'Your profile details have been saved successfully.',
+        type: 'success',
+      });
     } catch (err) {
       setSaving(false);
-      Alert.alert('Update Failed', err.message || 'Could not save profile changes.');
+      showAlert({
+        title: 'Update Failed',
+        message: err.message || 'Could not save profile changes.',
+        type: 'error',
+      });
     }
   };
 
   const handleSelectDepartment = () => {
-    Alert.alert(
-      'Select Department',
-      'Choose your enrolled engineering department:',
-      [
-        { text: 'CMPN (Computer Engg)', onPress: () => updateStudentDepartment('CMPN') },
-        { text: 'ECS (Electronics & Computer Science)', onPress: () => updateStudentDepartment('ECS') },
-        { text: 'INFT (Information Technology)', onPress: () => updateStudentDepartment('INFT') },
-        { text: 'EXTC (Electronics & Telecom)', onPress: () => updateStudentDepartment('EXTC') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    showAlert({
+      title: 'Select Department',
+      message: 'Choose your enrolled engineering department:',
+      type: 'info',
+      icon: 'school',
+      secondaryText: 'Cancel',
+      options: DEPARTMENTS.map((d) => ({
+        id: d.code,
+        title: `${d.code} (${d.name})`,
+        subtitle: `Enrolled in ${d.code} Department`,
+        selected: studentDept === d.code,
+        onPress: () => {
+          updateStudentDepartment(d.code);
+          closeAlert();
+        },
+      })),
+      onPrimaryPress: closeAlert,
+    });
   };
 
   const handleLogout = async () => {
@@ -255,10 +311,12 @@ export default function StudentProfilePage() {
         <TouchableOpacity
           style={styles.supportCard}
           onPress={() =>
-            Alert.alert(
-              'Campus IT Help Center',
-              'SFIT IT Support:\nEmail: it-support@sfit.ac.in\nExtension: 2404 / Academic Wing B'
-            )
+            showAlert({
+              title: 'Campus IT Help Center',
+              message: 'SFIT Institutional Support:\n\n• Email: it-support@sfit.ac.in\n• Extension: 2404 / Academic Wing B\n• Office: Ground Floor, Admin Block',
+              type: 'info',
+              icon: 'help-buoy',
+            })
           }
           activeOpacity={0.85}
         >
@@ -490,6 +548,9 @@ export default function StudentProfilePage() {
         onConfirm={handleLogout}
         roleLabel="student"
       />
+
+      {/* ── THEMED ALERT & DIALOG MODAL ────────────────────────────────── */}
+      <ThemedAlertModal {...alertConfig} onClose={closeAlert} />
     </View>
   );
 }

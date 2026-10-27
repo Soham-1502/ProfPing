@@ -36,7 +36,7 @@ export default function AccessRevokedModal({ visible, onConfirm }) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 12, 34, 0.75)',
+    backgroundColor: 'rgba(26, 16, 68, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,

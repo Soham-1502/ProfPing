@@ -20,6 +20,7 @@ import {
   Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
+import ThemedAlertModal from '../../src/components/ThemedAlertModal';
 
 export default function StudentMapsPage() {
   const [fontsLoaded] = useFonts({
@@ -33,6 +34,37 @@ export default function StudentMapsPage() {
   const router = useRouter();
   const [selectedFloor, setSelectedFloor] = useState('Floor 3');
   const [selectedRoom, setSelectedRoom] = useState('DESK 01');
+
+  // Themed Alert State
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    icon: null,
+    primaryText: 'OK',
+    secondaryText: null,
+    onPrimaryPress: null,
+    onSecondaryPress: null,
+  });
+
+  const showAlert = (config) => {
+    setAlertConfig({
+      visible: true,
+      title: config.title || '',
+      message: config.message || '',
+      type: config.type || 'info',
+      icon: config.icon || null,
+      primaryText: config.primaryText || 'OK',
+      secondaryText: config.secondaryText || null,
+      onPrimaryPress: config.onPrimaryPress || null,
+      onSecondaryPress: config.onSecondaryPress || null,
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   if (!fontsLoaded) {
     return (
@@ -60,14 +92,17 @@ export default function StudentMapsPage() {
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() =>
-            Alert.alert(
-              'Self-Reported Presence',
-              'Faculty broadcast their active location and cabin presence in real-time.'
-            )
+            showAlert({
+              title: 'Self-Reported Presence',
+              message: 'Faculty broadcast their active location and cabin presence in real-time across campus.',
+              type: 'info',
+              icon: 'location-outline',
+              primaryText: 'Understood',
+            })
           }
           activeOpacity={0.7}
         >
-          <Ionicons name="refresh-outline" size={19} color="#1A191F" />
+          <Ionicons name="information-circle-outline" size={19} color="#4326B6" />
         </TouchableOpacity>
       </View>
 
@@ -290,6 +325,9 @@ export default function StudentMapsPage() {
 
         <View style={{ height: 110 }} />
       </ScrollView>
+
+      {/* ── THEMED INSTITUTIONAL ALERT MODAL ───────────────────────── */}
+      <ThemedAlertModal {...alertConfig} onClose={closeAlert} />
     </View>
   );
 }
