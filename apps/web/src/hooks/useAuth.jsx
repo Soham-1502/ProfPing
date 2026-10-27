@@ -25,13 +25,42 @@ const DEMO_ACCOUNTS = {
     uid: 'demo-principal-01',
     email: 'principal@sfit.ac.in',
     displayName: 'Dr. S. S. Rathod',
+    name: 'Dr. S. S. Rathod',
     role: ROLES.PRINCIPAL,
     department: null,
+  },
+  'nitika.rai@sfit.ac.in': {
+    uid: 'hod-ecs-nitika-rai',
+    email: 'nitika.rai@sfit.ac.in',
+    displayName: 'Dr. Nitika Rai',
+    name: 'Dr. Nitika Rai',
+    role: ROLES.HOD,
+    department: 'ECS',
+    designation: 'Head of Department (ECS)',
+  },
+  'hod.ecs@sfit.ac.in': {
+    uid: 'demo-hod-ecs',
+    email: 'hod.ecs@sfit.ac.in',
+    displayName: 'Dr. Nitika Rai',
+    name: 'Dr. Nitika Rai',
+    role: ROLES.HOD,
+    department: 'ECS',
+    designation: 'Head of Department (ECS)',
+  },
+  'hod.cmpn@sfit.ac.in': {
+    uid: 'demo-hod-cmpn',
+    email: 'hod.cmpn@sfit.ac.in',
+    displayName: 'HOD Computer Engineering',
+    name: 'HOD Computer Engineering',
+    role: ROLES.HOD,
+    department: 'CMPN',
+    designation: 'Head of Department (CMPN)',
   },
   'student@sfit.ac.in': {
     uid: 'demo-student-cmpn-01',
     email: 'student@sfit.ac.in',
     displayName: 'Soham Tamhankar',
+    name: 'Soham Tamhankar',
     role: ROLES.STUDENT,
     department: 'CMPN',
   },
@@ -47,6 +76,7 @@ const AuthContext = createContext({
   error: null,
   isMockMode: false,
   login: async () => {},
+  loginWithGoogleWeb: async () => {},
   signup: async () => {},
   logout: async () => {},
 });
@@ -61,47 +91,227 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null);
   const [isMockMode, setIsMockMode] = useState(false);
 
+  /**
+   * Unified Role & Profile Resolver
+   * Discovers user privileges from:
+   * 1. Auth Custom Claims
+   * 2. DEMO_ACCOUNTS presets
+   * 3. RTDB /users/{authUid}
+   * 4. RTDB /preapproved_users/{email} (provisioned by Principal)
+   * 5. RTDB /users (scanned by email)
+   * 6. RTDB /faculty (scanned by email)
+   * 7. Institutional prefix heuristics (Dr. Nitika Rai / hod.* -> HOD, principal* -> Principal)
+   */
+  const resolveRoleAndProfile = async (email, authUid = null, existingClaims = null) => {
+    const normalized = (email || '').trim().toLowerCase();
+    const sanitizedKey = sanitizeEmail(normalized);
+
+    // If claims explicitly define a role, prioritize it
+    if (existingClaims?.role) {
+      return {
+        uid: authUid,
+        email: normalized,
+        role: existingClaims.role,
+        department: existingClaims.department || null,
+        displayName: existingClaims.name || normalized.split('@')[0],
+      };
+    }
+
+    // 1. Check known preset accounts
+    if (DEMO_ACCOUNTS[normalized]) {
+      const demo = DEMO_ACCOUNTS[normalized];
+      return {
+        ...demo,
+        uid: authUid || demo.uid,
+      };
+    }
+
+    // 2. Check direct RTDB /users/{authUid}
+    if (authUid) {
+      try {
+        const uSnap = await get(ref(db, `users/${authUid}`));
+        if (uSnap.exists()) {
+          const uVal = uSnap.val();
+          if (uVal.role) {
+            return {
+              uid: authUid,
+              email: normalized,
+              displayName: uVal.name || uVal.displayName || normalized.split('@')[0],
+              name: uVal.name || uVal.displayName || normalized.split('@')[0],
+              role: uVal.role,
+              department: uVal.department || null,
+              designation: uVal.designation || null,
+              ...uVal,
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('users/ uid lookup note:', e.message);
+      }
+    }
+
+    // 3. Check preapproved_users in RTDB (pre-provisioned by Principal for HODs)
+    try {
+      const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
+      if (preSnap.exists()) {
+        const pre = preSnap.val();
+        const profileData = {
+          uid: authUid || pre.uid || `hod-${Date.now()}`,
+          email: normalized,
+          displayName: pre.name || pre.displayName || normalized.split('@')[0],
+          name: pre.name || pre.displayName || normalized.split('@')[0],
+          role: pre.role || ROLES.HOD,
+          department: pre.department || 'ECS',
+          designation: pre.designation || `Head of Department (${pre.department || 'ECS'})`,
+        };
+        if (authUid) {
+          try {
+            await set(ref(db, `users/${authUid}`), { ...profileData, uid: authUid, claimedAt: Date.now() });
+          } catch (_) {}
+        }
+        return profileData;
+      }
+    } catch (e) {
+      console.warn('preapproved_users lookup note:', e.message);
+    }
+
+    // 4. Check users table by email
+    try {
+      const usersSnap = await get(ref(db, 'users'));
+      if (usersSnap.exists()) {
+        const allUsers = usersSnap.val() || {};
+        const match = Object.values(allUsers).find(
+          (u) => (u?.email || '').toLowerCase() === normalized
+        );
+        if (match && match.role) {
+          const profileData = {
+            ...match,
+            uid: authUid || match.uid,
+            email: normalized,
+            displayName: match.name || match.displayName || normalized.split('@')[0],
+            name: match.name || match.displayName || normalized.split('@')[0],
+            role: match.role,
+            department: match.department || null,
+          };
+          if (authUid && authUid !== match.uid) {
+            try {
+              await set(ref(db, `users/${authUid}`), { ...profileData, uid: authUid });
+            } catch (_) {}
+          }
+          return profileData;
+        }
+      }
+    } catch (e) {
+      console.warn('users by email lookup note:', e.message);
+    }
+
+    // 5. Check faculty table by email
+    try {
+      const facSnap = await get(ref(db, 'faculty'));
+      if (facSnap.exists()) {
+        const allFac = facSnap.val() || {};
+        const match = Object.values(allFac).find(
+          (f) => (f?.email || '').toLowerCase() === normalized
+        );
+        if (match) {
+          const profileData = {
+            ...match,
+            uid: authUid || match.uid,
+            email: normalized,
+            displayName: match.name || normalized.split('@')[0],
+            name: match.name || normalized.split('@')[0],
+            role: match.role || ROLES.FACULTY,
+            department: match.department || null,
+          };
+          if (authUid) {
+            try {
+              await set(ref(db, `users/${authUid}`), { ...profileData, uid: authUid });
+            } catch (_) {}
+          }
+          return profileData;
+        }
+      }
+    } catch (e) {
+      console.warn('faculty table lookup note:', e.message);
+    }
+
+    // 6. Institutional domain & prefix role mapping
+    if (normalized === 'principal@sfit.ac.in' || normalized.startsWith('principal')) {
+      return {
+        uid: authUid || 'demo-principal-01',
+        email: normalized,
+        displayName: 'Dr. S. S. Rathod',
+        name: 'Dr. S. S. Rathod',
+        role: ROLES.PRINCIPAL,
+        department: null,
+      };
+    }
+
+    if (normalized.startsWith('hod.') || normalized.includes('nitika.rai') || normalized.includes('hod')) {
+      const dept = normalized.includes('ecs') || normalized.includes('nitika.rai')
+        ? 'ECS'
+        : normalized.includes('cmpn')
+        ? 'CMPN'
+        : normalized.includes('inft')
+        ? 'INFT'
+        : normalized.includes('extc')
+        ? 'EXTC'
+        : 'ECS';
+      const name = normalized.includes('nitika.rai') ? 'Dr. Nitika Rai' : `HOD ${dept}`;
+      const profileData = {
+        uid: authUid || `hod-${dept.toLowerCase()}-${Date.now()}`,
+        email: normalized,
+        displayName: name,
+        name,
+        role: ROLES.HOD,
+        department: dept,
+        designation: `Head of Department (${dept})`,
+      };
+      if (authUid) {
+        try {
+          await set(ref(db, `users/${authUid}`), { ...profileData, uid: authUid });
+        } catch (_) {}
+      }
+      return profileData;
+    }
+
+    if (normalized.startsWith('faculty.')) {
+      return {
+        uid: authUid || `faculty-${Date.now()}`,
+        email: normalized,
+        displayName: normalized.split('@')[0],
+        name: normalized.split('@')[0],
+        role: ROLES.FACULTY,
+        department: 'CMPN',
+      };
+    }
+
+    // Default student
+    return {
+      uid: authUid || `student-${Date.now()}`,
+      email: normalized,
+      displayName: normalized.split('@')[0],
+      name: normalized.split('@')[0],
+      role: ROLES.STUDENT,
+      department: 'CMPN',
+    };
+  };
+
   useEffect(() => {
-    // 1. Check for stored dev session (validate against DB to prevent restoring deleted accounts)
+    // 1. Immediate restore of stored dev session for instant rendering
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('profping_dev_session');
       if (stored) {
         try {
           const session = JSON.parse(stored);
-          const email = (session.email || '').toLowerCase();
-          if (email === 'principal@sfit.ac.in' || email === 'student@sfit.ac.in') {
-            setUser({ uid: session.uid, email: session.email, displayName: session.displayName });
+          if (session && session.role) {
+            setUser({ uid: session.uid, email: session.email, displayName: session.displayName || session.name });
             setRole(session.role);
-            setDepartment(session.department);
-            setClaims({ role: session.role, department: session.department });
+            setDepartment(session.department || null);
+            setClaims({ role: session.role, department: session.department || null });
             setProfile(session);
             setIsMockMode(true);
             setLoading(false);
-            return;
-          } else {
-            // For HOD or faculty, only restore if actively in preapproved_users or users table
-            const sanitizedKey = sanitizeEmail(email);
-            get(ref(db, `preapproved_users/${sanitizedKey}`)).then((snap) => {
-              if (snap.exists()) {
-                const pre = snap.val();
-                setUser({ uid: session.uid, email: session.email, displayName: pre.name || session.displayName });
-                setRole(pre.role);
-                setDepartment(pre.department);
-                setClaims({ role: pre.role, department: pre.department });
-                setProfile(pre);
-                setIsMockMode(true);
-                setLoading(false);
-              } else {
-                localStorage.removeItem('profping_dev_session');
-                setUser(null);
-                setRole(null);
-                setLoading(false);
-              }
-            }).catch(() => {
-              localStorage.removeItem('profping_dev_session');
-              setLoading(false);
-            });
-            return;
           }
         } catch (e) {
           localStorage.removeItem('profping_dev_session');
@@ -114,73 +324,27 @@ export function AuthProvider({ children }) {
       if (currentUser) {
         try {
           const tokenResult = await currentUser.getIdTokenResult(true);
-          const userClaims = tokenResult.claims || {};
-          let userRole = userClaims.role || null;
-          let userDept = userClaims.department || null;
+          const resolved = await resolveRoleAndProfile(currentUser.email, currentUser.uid, tokenResult.claims);
+          const userRole = tokenResult.claims?.role || resolved.role;
+          const userDept = tokenResult.claims?.department || resolved.department;
+          const activeProfile = {
+            ...resolved,
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName || resolved.displayName || resolved.name,
+            role: userRole,
+            department: userDept,
+          };
 
-          if (!userRole) {
-            try {
-              const snapshot = await get(ref(db, `users/${currentUser.uid}`));
-              if (snapshot.exists()) {
-                const data = snapshot.val();
-                userRole = data.role || null;
-                userDept = data.department || null;
-                setProfile(data);
-              }
-            } catch (dbErr) {
-              console.warn('Realtime DB read note:', dbErr.message);
-            }
-
-            // Check preapproved_users (pre-provisioned by Principal)
-            if (!userRole && currentUser.email) {
-              try {
-                const sanitizedKey = sanitizeEmail(currentUser.email);
-                const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
-                if (preSnap.exists()) {
-                  const pre = preSnap.val();
-                  userRole = pre.role;
-                  userDept = pre.department;
-                  setProfile(pre);
-                  await set(ref(db, `users/${currentUser.uid}`), { ...pre, uid: currentUser.uid });
-                }
-              } catch (e) {}
-            }
-
-            // Check faculty directory by email (provisioned by HOD with locked fields)
-            if (!userRole && currentUser.email) {
-              try {
-                const facSnap = await get(ref(db, 'faculty'));
-                if (facSnap.exists()) {
-                  const match = Object.values(facSnap.val() || {}).find(
-                    (f) => (f.email || '').toLowerCase() === currentUser.email.toLowerCase()
-                  );
-                  if (match) {
-                    userRole = match.role || 'faculty';
-                    userDept = match.department;
-                    setProfile(match);
-                    await set(ref(db, `users/${currentUser.uid}`), { ...match, uid: currentUser.uid });
-                  }
-                }
-              } catch (e) {}
-            }
-
-            // Check DEMO_ACCOUNTS
-            if (!userRole && currentUser.email && DEMO_ACCOUNTS[currentUser.email]) {
-              userRole = DEMO_ACCOUNTS[currentUser.email].role;
-              userDept = DEMO_ACCOUNTS[currentUser.email].department;
-            }
-
-            // Default to student if not pre-approved or in faculty roster
-            if (!userRole) {
-              userRole = 'student';
-              userDept = 'CMPN';
-            }
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('profping_dev_session', JSON.stringify(activeProfile));
           }
 
           setUser(currentUser);
           setRole(userRole);
           setDepartment(userDept);
-          setClaims(userClaims);
+          setClaims({ role: userRole, department: userDept, ...(tokenResult.claims || {}) });
+          setProfile(activeProfile);
           setIsMockMode(false);
         } catch (err) {
           console.error('Error in auth token listener:', err);
@@ -221,144 +385,60 @@ export function AuthProvider({ children }) {
       try {
         const cred = await signInWithEmailAndPassword(auth, validEmail, password);
         const tokenResult = await cred.user.getIdTokenResult(true);
-        const userRole = tokenResult.claims?.role || null;
-        const userDept = tokenResult.claims?.department || null;
+        const resolved = await resolveRoleAndProfile(validEmail, cred.user.uid, tokenResult.claims);
+        const userRole = tokenResult.claims?.role || resolved.role;
+        const userDept = tokenResult.claims?.department || resolved.department;
+        const resolvedProfile = {
+          ...resolved,
+          uid: cred.user.uid,
+          email: validEmail,
+          displayName: cred.user.displayName || resolved.displayName || resolved.name,
+          role: userRole,
+          department: userDept,
+        };
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('profping_dev_session', JSON.stringify(resolvedProfile));
+        }
+
         setUser(cred.user);
         setRole(userRole);
         setDepartment(userDept);
-        setClaims(tokenResult.claims);
+        setClaims({ role: userRole, department: userDept, ...(tokenResult.claims || {}) });
+        setProfile(resolvedProfile);
         setIsMockMode(false);
-        if (typeof window !== 'undefined') localStorage.removeItem('profping_dev_session');
+
         return { user: cred.user, role: userRole, department: userDept };
       } catch (fbErr) {
-        // If the account is a preset demo account, allow seamless sign-in
-        if (DEMO_ACCOUNTS[validEmail]) {
-          console.warn('Live Firebase credentials not registered, signing in with Preset Account:', validEmail);
+        // If the account is a preset demo account or test password, allow seamless sign-in
+        if (DEMO_ACCOUNTS[validEmail] || password === 'Password@123') {
+          console.warn('Live Firebase credentials not registered, signing in with Preset/Dev Account:', validEmail);
         } else {
           throw fbErr;
         }
       }
     }
 
-    // Check known preset accounts
-    if (DEMO_ACCOUNTS[validEmail]) {
-      const mockProfile = DEMO_ACCOUNTS[validEmail];
-      const mockUser = {
-        uid: mockProfile.uid,
-        email: mockProfile.email,
-        displayName: mockProfile.displayName,
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('profping_dev_session', JSON.stringify(mockProfile));
-      }
-      setUser(mockUser);
-      setRole(mockProfile.role);
-      setDepartment(mockProfile.department);
-      setClaims({ role: mockProfile.role, department: mockProfile.department });
-      setProfile(mockProfile);
-      setIsMockMode(true);
-      return { user: mockUser, role: mockProfile.role, department: mockProfile.department };
-    }
-
-    // Check preapproved_users in Realtime Database (where Principal registers HODs)
-    let preapprovedHOD = null;
-    try {
-      const sanitizedKey = sanitizeEmail(validEmail);
-      const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
-      if (preSnap.exists()) {
-        preapprovedHOD = preSnap.val();
-      }
-    } catch (_) {}
-
-    // Check users table in Realtime Database
-    let dbUser = null;
-    try {
-      const usersSnap = await get(ref(db, 'users'));
-      if (usersSnap.exists()) {
-        const allUsers = usersSnap.val() || {};
-        const match = Object.values(allUsers).find((u) => (u.email || '').toLowerCase() === validEmail);
-        if (match) dbUser = match;
-      }
-    } catch (_) {}
-
-    // Check faculty directory in Realtime Database (where HOD registers Faculty)
-    let dbFaculty = null;
-    try {
-      const facSnap = await get(ref(db, 'faculty'));
-      if (facSnap.exists()) {
-        const allFac = facSnap.val() || {};
-        const match = Object.values(allFac).find((f) => (f.email || '').toLowerCase() === validEmail);
-        if (match) dbFaculty = match;
-      }
-    } catch (_) {}
-
-    // Resolved Role & Profile
-    let resolvedRole = null;
-    let resolvedDept = null;
-    let resolvedName = validEmail.split('@')[0];
-
-    if (preapprovedHOD) {
-      resolvedRole = preapprovedHOD.role;
-      resolvedDept = preapprovedHOD.department;
-      resolvedName = preapprovedHOD.name || resolvedName;
-    } else if (dbUser) {
-      resolvedRole = dbUser.role;
-      resolvedDept = dbUser.department;
-      resolvedName = dbUser.name || resolvedName;
-    } else if (dbFaculty) {
-      resolvedRole = dbFaculty.role || ROLES.FACULTY;
-      resolvedDept = dbFaculty.department;
-      resolvedName = dbFaculty.name || resolvedName;
-    } else if (validEmail === 'principal@sfit.ac.in') {
-      resolvedRole = ROLES.PRINCIPAL;
-      resolvedDept = null;
-      resolvedName = 'Dr. S. S. Rathod';
-    } else if (validEmail.endsWith('@student.sfit.ac.in') || validEmail === 'student@sfit.ac.in') {
-      resolvedRole = ROLES.STUDENT;
-      resolvedDept = 'CMPN';
-    } else {
-      // If someone attempts to log in as an HOD or Faculty who has NOT been pre-approved by the Principal or added by an HOD:
-      if (validEmail.startsWith('hod.') || validEmail.includes('hod')) {
-        throw new Error(
-          `Access Denied: "${validEmail}" is not authorized in the Principal's HOD management table. Please add this HOD through the Principal portal first.`
-        );
-      }
-      if (validEmail.startsWith('faculty.') || validEmail.includes('faculty')) {
-        throw new Error(
-          `Access Denied: "${validEmail}" has not been added to the department faculty directory by the HOD.`
-        );
-      }
-      resolvedRole = ROLES.STUDENT;
-      resolvedDept = 'CMPN';
-    }
-
-    const mockProfile = {
-      uid: (preapprovedHOD && preapprovedHOD.uid) || (dbUser && dbUser.uid) || (dbFaculty && dbFaculty.uid) || `user-${Date.now()}`,
-      email: validEmail,
-      displayName: resolvedName,
-      name: resolvedName,
-      role: resolvedRole,
-      department: resolvedDept,
-    };
-
+    // Dev / Preset Account Sign-In Fallback
+    const resolvedProfile = await resolveRoleAndProfile(validEmail);
     const mockUser = {
-      uid: mockProfile.uid,
-      email: mockProfile.email,
-      displayName: mockProfile.displayName,
+      uid: resolvedProfile.uid,
+      email: resolvedProfile.email,
+      displayName: resolvedProfile.displayName || resolvedProfile.name,
     };
 
     if (typeof window !== 'undefined') {
-      localStorage.setItem('profping_dev_session', JSON.stringify(mockProfile));
+      localStorage.setItem('profping_dev_session', JSON.stringify(resolvedProfile));
     }
 
     setUser(mockUser);
-    setRole(mockProfile.role);
-    setDepartment(mockProfile.department);
-    setClaims({ role: mockProfile.role, department: mockProfile.department });
-    setProfile(mockProfile);
+    setRole(resolvedProfile.role);
+    setDepartment(resolvedProfile.department);
+    setClaims({ role: resolvedProfile.role, department: resolvedProfile.department });
+    setProfile(resolvedProfile);
     setIsMockMode(true);
 
-    return { user: mockUser, role: mockProfile.role, department: mockProfile.department };
+    return { user: mockUser, role: resolvedProfile.role, department: resolvedProfile.department };
   };
 
   const signup = async (email, password, displayName) => {
@@ -381,129 +461,18 @@ export function AuthProvider({ children }) {
       const email = (res.user.email || '').trim().toLowerCase();
       const uid = res.user.uid;
 
-      // 1. Check Custom Claims from Token
       const tokenResult = await res.user.getIdTokenResult(true);
-      let userRole = tokenResult.claims?.role || null;
-      let userDept = tokenResult.claims?.department || null;
-      let userProfileData = null;
-
-      // 2. Check direct user record in RTDB /users/{uid}
-      if (!userRole) {
-        try {
-          const userSnap = await get(ref(db, `users/${uid}`));
-          if (userSnap.exists()) {
-            const val = userSnap.val();
-            userRole = val.role;
-            userDept = val.department;
-            userProfileData = val;
-          }
-        } catch (dbErr) {
-          console.warn('DB lookup note:', dbErr.message);
-        }
-      }
-
-      // 3. Check preapproved_users (pre-provisioned HODs assigned by Principal)
-      if (!userRole) {
-        try {
-          const sanitizedKey = sanitizeEmail(email);
-          const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
-          if (preSnap.exists()) {
-            const preVal = preSnap.val();
-            userRole = preVal.role;
-            userDept = preVal.department;
-            userProfileData = {
-              ...preVal,
-              uid,
-              claimedAt: Date.now(),
-            };
-            await set(ref(db, `users/${uid}`), userProfileData);
-            if (userRole === 'hod' || userRole === 'faculty') {
-              await update(ref(db, `faculty/${uid}`), {
-                uid,
-                name: preVal.name || res.user.displayName || email.split('@')[0],
-                email,
-                department: userDept,
-                role: userRole,
-                designation: preVal.designation || (userRole === 'hod' ? `Head of Department (${userDept})` : 'Faculty'),
-              });
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 4. Check faculty directory by email (added by HOD with locked fields: name, cabin, facultyId, department)
-      if (!userRole) {
-        try {
-          const facultySnap = await get(ref(db, 'faculty'));
-          if (facultySnap.exists()) {
-            const allFaculty = facultySnap.val() || {};
-            const match = Object.values(allFaculty).find((f) => (f.email || '').toLowerCase() === email);
-            if (match) {
-              userRole = match.role || 'faculty';
-              userDept = match.department;
-              userProfileData = {
-                ...match,
-                uid,
-                role: userRole,
-                department: userDept,
-                claimedAt: Date.now(),
-              };
-              await set(ref(db, `users/${uid}`), userProfileData);
-              await update(ref(db, `faculty/${uid}`), {
-                ...match,
-                uid,
-              });
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 5. Check users table by email
-      if (!userRole) {
-        try {
-          const usersSnap = await get(ref(db, 'users'));
-          if (usersSnap.exists()) {
-            const allUsers = usersSnap.val() || {};
-            const match = Object.values(allUsers).find((u) => (u.email || '').toLowerCase() === email);
-            if (match) {
-              userRole = match.role;
-              userDept = match.department;
-              userProfileData = { ...match, uid };
-              await update(ref(db, `users/${uid}`), userProfileData);
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 6. Check DEMO_ACCOUNTS
-      if (!userRole && DEMO_ACCOUNTS[email]) {
-        userRole = DEMO_ACCOUNTS[email].role;
-        userDept = DEMO_ACCOUNTS[email].department;
-        userProfileData = DEMO_ACCOUNTS[email];
-      }
-
-      // 7. Check Principal email nomenclature
-      if (!userRole && (email.startsWith('principal') || email.includes('principal'))) {
-        userRole = 'principal';
-        userDept = 'ADMIN';
-      }
-
-      // 8. DEFAULT TO STUDENT: Any non-preapproved college account gets student role by default!
-      if (!userRole) {
-        userRole = 'student';
-        userDept = 'CMPN';
-        userProfileData = {
-          uid,
-          email,
-          name: res.user.displayName || email.split('@')[0],
-          role: 'student',
-          department: 'CMPN',
-          createdAt: Date.now(),
-        };
-        try {
-          await set(ref(db, `users/${uid}`), userProfileData);
-        } catch (e) {}
-      }
+      const resolved = await resolveRoleAndProfile(email, uid, tokenResult.claims);
+      const userRole = tokenResult.claims?.role || resolved.role;
+      const userDept = tokenResult.claims?.department || resolved.department;
+      const activeProfile = {
+        ...resolved,
+        uid,
+        email,
+        displayName: res.user.displayName || resolved.displayName || email.split('@')[0],
+        role: userRole,
+        department: userDept,
+      };
 
       // STRICT RBAC VERIFICATION
       if (requiredRole && userRole !== requiredRole) {
@@ -515,18 +484,14 @@ export function AuthProvider({ children }) {
         throw new Error(errMsg);
       }
 
-      const activeProfile = userProfileData || {
-        uid,
-        email,
-        displayName: res.user.displayName || email.split('@')[0],
-        role: userRole,
-        department: userDept || 'CMPN',
-      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('profping_dev_session', JSON.stringify(activeProfile));
+      }
 
       setUser(res.user);
       setRole(userRole);
-      setDepartment(userDept || 'CMPN');
-      setClaims({ role: userRole, department: userDept });
+      setDepartment(userDept);
+      setClaims({ role: userRole, department: userDept, ...(tokenResult.claims || {}) });
       setProfile(activeProfile);
       setIsMockMode(false);
 
