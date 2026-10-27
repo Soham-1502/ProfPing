@@ -272,12 +272,15 @@ export function subscribeToStudents(department, callback) {
       if (!acc) return;
       studentMap.set(uid, {
         uid,
-        name: acc.name || 'Student',
+        name: acc.name || acc.displayName || 'Student',
         email: acc.email || '',
         department: (acc.department || '').toUpperCase(),
         lastSeen: acc.lastSeen || Date.now(),
         is_active: acc.revoked !== true,
         revoked: acc.revoked === true,
+        rollNumber: acc.rollNumber || acc.rollNo || '',
+        pid: acc.pid || '',
+        photoURL: acc.photoURL || null,
       });
     });
 
@@ -296,7 +299,9 @@ export function subscribeToStudents(department, callback) {
           lastSeen: u.lastLoginAt || existing.lastSeen || u.claimedAt || Date.now(),
           is_active: !isRevoked,
           revoked: isRevoked,
-          rollNo: u.rollNo || existing.rollNo || '',
+          rollNumber: u.rollNumber || u.rollNo || existing.rollNumber || existing.rollNo || '',
+          pid: u.pid || existing.pid || '',
+          photoURL: u.photoURL || existing.photoURL || null,
         });
       }
     });

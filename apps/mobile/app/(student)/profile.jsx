@@ -8,7 +8,11 @@ import {
   Alert,
   StatusBar,
   Platform,
-  Switch,
+  Modal,
+  TextInput,
+  Image,
+  ActivityIndicator,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -25,6 +29,22 @@ import FloatingNavbar from '../../src/components/FloatingNavbar';
 import LogoutModal from '../../src/components/LogoutModal';
 import { getStarredFacultyUids } from '../../src/services/favoritesStorage';
 
+const PRESET_AVATARS = [
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
+];
+
+const DEPARTMENTS = [
+  { code: 'CMPN', name: 'Computer' },
+  { code: 'ECS', name: 'Electronics & CS' },
+  { code: 'INFT', name: 'Information Tech' },
+  { code: 'EXTC', name: 'Telecom' },
+];
+
 export default function StudentProfilePage() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -34,16 +54,32 @@ export default function StudentProfilePage() {
     Inter_800ExtraBold,
   });
 
-  const { user, department, logout, updateStudentDepartment } = useAuth();
+  const { user, profile, department, logout, updateStudentProfile, updateStudentDepartment } = useAuth();
   const router = useRouter();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
+  // Edit Profile Modal State
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDept, setEditDept] = useState('CMPN');
+  const [editRoll, setEditRoll] = useState('');
+  const [editPid, setEditPid] = useState('');
+  const [editPhotoURL, setEditPhotoURL] = useState('');
+  const [showCustomUrlInput, setShowCustomUrlInput] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   const studentName =
+    profile?.name ||
+    profile?.displayName ||
     user?.displayName ||
     user?.name ||
     (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Student Account');
   const studentEmail = user?.email || 'student@sfit.ac.in';
-  const studentDept = (department || user?.department || 'CMPN').toUpperCase();
+  const studentDept = (department || profile?.department || user?.department || 'CMPN').toUpperCase();
+  const currentPhoto = profile?.photoURL || user?.photoURL || null;
+  const rollNumber = profile?.rollNumber || profile?.rollNo || '';
+  const pid = profile?.pid || '';
+
   const initials =
     studentName
       .split(' ')
@@ -57,6 +93,47 @@ export default function StudentProfilePage() {
   useEffect(() => {
     getStarredFacultyUids().then((set) => setStarredCount(set.size));
   }, []);
+
+  const openEditModal = () => {
+    setEditName(studentName);
+    setEditDept(studentDept);
+    setEditRoll(rollNumber);
+    setEditPid(pid);
+    setEditPhotoURL(currentPhoto || '');
+    setShowCustomUrlInput(false);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      Alert.alert('Required Field', 'Please enter your full name.');
+      return;
+    }
+
+    const trimmedPid = editPid.trim();
+    if (trimmedPid && !/^\d{6}$/.test(trimmedPid)) {
+      Alert.alert('Invalid PID', 'PID must be exactly 6 numeric digits (e.g., 221045).');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await updateStudentProfile({
+        name: trimmedName,
+        department: editDept,
+        rollNumber: editRoll.trim(),
+        pid: trimmedPid,
+        photoURL: editPhotoURL.trim() || null,
+      });
+      setSaving(false);
+      setEditModalVisible(false);
+      Alert.alert('Profile Updated', 'Your profile details have been saved successfully.');
+    } catch (err) {
+      setSaving(false);
+      Alert.alert('Update Failed', err.message || 'Could not save profile changes.');
+    }
+  };
 
   const handleSelectDepartment = () => {
     Alert.alert(
@@ -98,6 +175,14 @@ export default function StudentProfilePage() {
           </View>
           <Text style={styles.screenTitle}>Student Profile</Text>
         </View>
+        <TouchableOpacity
+          style={styles.editProfileHeaderBtn}
+          onPress={openEditModal}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="pencil-sharp" size={13} color="#4326B6" style={{ marginRight: 5 }} />
+          <Text style={styles.editProfileHeaderBtnText}>Edit</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── PROFILE SCROLL VIEW ────────────────────────────────────── */}
@@ -109,13 +194,21 @@ export default function StudentProfilePage() {
         {/* 1. STUDENT IDENTITY CARD */}
         <View style={styles.studentIdCard}>
           <View style={styles.studentIdTopRow}>
-            {/* Avatar with Initials */}
-            <View style={styles.avatarBox}>
-              <Text style={styles.avatarInitials}>{initials}</Text>
-              <View style={styles.onlineBadge}>
-                <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+            {/* Avatar (Photo or Initials) */}
+            <TouchableOpacity
+              style={styles.avatarBox}
+              onPress={openEditModal}
+              activeOpacity={0.85}
+            >
+              {currentPhoto ? (
+                <Image source={{ uri: currentPhoto }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              )}
+              <View style={styles.editBadge}>
+                <Ionicons name="camera" size={10} color="#FFFFFF" />
               </View>
-            </View>
+            </TouchableOpacity>
 
             {/* Identity Info: Name, College Email, Department */}
             <View style={styles.infoCol}>
@@ -127,10 +220,12 @@ export default function StudentProfilePage() {
 
               <View style={styles.metaRow}>
                 <Ionicons name="mail-outline" size={13} color="#64748B" style={{ marginRight: 6 }} />
-                <Text style={styles.emailText}>{studentEmail}</Text>
+                <Text style={styles.emailText} numberOfLines={1}>
+                  {studentEmail}
+                </Text>
               </View>
 
-              {/* Department Selector */}
+              {/* Department Pill */}
               <TouchableOpacity
                 style={styles.deptSelectPill}
                 onPress={handleSelectDepartment}
@@ -140,6 +235,18 @@ export default function StudentProfilePage() {
                 <Text style={styles.deptSelectText}>Department: {studentDept}</Text>
                 <FontAwesome5 name="chevron-down" size={9} color="#4326B6" style={{ marginLeft: 6 }} />
               </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Roll Number & PID Badges Row */}
+          <View style={styles.academicChipsContainer}>
+            <View style={styles.academicChip}>
+              <Text style={styles.academicChipLabel}>ROLL NO.</Text>
+              <Text style={styles.academicChipValue}>{rollNumber || 'Not set'}</Text>
+            </View>
+            <View style={styles.academicChip}>
+              <Text style={styles.academicChipLabel}>PID (6 DIGITS)</Text>
+              <Text style={styles.academicChipValue}>{pid || 'Not set'}</Text>
             </View>
           </View>
 
@@ -188,6 +295,245 @@ export default function StudentProfilePage() {
 
         <View style={{ height: 28 }} />
       </ScrollView>
+
+      {/* ── EDIT PROFILE MODAL ────────────────────────────────────────── */}
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.editCard}>
+              {/* Modal Header */}
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitle}>Edit Student Profile</Text>
+                  <Text style={styles.modalSubtitle}>Update your name, roll, PID, and photo</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setEditModalVisible(false)}
+                  style={styles.modalCloseBtn}
+                >
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={styles.modalScroll}
+                contentContainerStyle={{ paddingBottom: 20 }}
+              >
+                {/* 1. Profile Photo Picker */}
+                <Text style={styles.inputSectionTitle}>PROFILE PHOTO</Text>
+                <View style={styles.avatarPickerRow}>
+                  <View style={styles.previewAvatarBox}>
+                    {editPhotoURL ? (
+                      <Image source={{ uri: editPhotoURL }} style={styles.previewAvatarImage} />
+                    ) : (
+                      <Text style={styles.previewAvatarInitials}>{initials}</Text>
+                    )}
+                  </View>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.presetsList}
+                  >
+                    {/* Reset to Initials Option */}
+                    <TouchableOpacity
+                      style={[
+                        styles.presetThumbnailBox,
+                        !editPhotoURL && styles.presetThumbnailSelected,
+                      ]}
+                      onPress={() => setEditPhotoURL('')}
+                    >
+                      <Ionicons name="person-circle-outline" size={28} color="#64748B" />
+                    </TouchableOpacity>
+
+                    {PRESET_AVATARS.map((uri, index) => {
+                      const isSelected = editPhotoURL === uri;
+                      return (
+                        <TouchableOpacity
+                          key={index}
+                          style={[
+                            styles.presetThumbnailBox,
+                            isSelected && styles.presetThumbnailSelected,
+                          ]}
+                          onPress={() => setEditPhotoURL(uri)}
+                        >
+                          <Image source={{ uri }} style={styles.presetThumbnailImg} />
+                          {isSelected && (
+                            <View style={styles.presetCheckmark}>
+                              <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {/* Custom URL Toggle */}
+                <TouchableOpacity
+                  style={styles.customUrlToggleBtn}
+                  onPress={() => setShowCustomUrlInput(!showCustomUrlInput)}
+                >
+                  <Ionicons
+                    name={showCustomUrlInput ? 'chevron-up' : 'link-outline'}
+                    size={14}
+                    color="#4326B6"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.customUrlToggleText}>
+                    {showCustomUrlInput ? 'Hide Custom Photo URL' : 'Use Custom Image URL'}
+                  </Text>
+                </TouchableOpacity>
+
+                {showCustomUrlInput && (
+                  <View style={styles.customUrlContainer}>
+                    <TextInput
+                      style={styles.inputField}
+                      placeholder="https://example.com/avatar.jpg"
+                      placeholderTextColor="#94A3B8"
+                      value={editPhotoURL}
+                      onChangeText={setEditPhotoURL}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                )}
+
+                {/* 2. Full Name Input */}
+                <Text style={styles.inputSectionTitle}>FULL NAME *</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="person-outline" size={16} color="#64748B" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.inputFieldWithIcon}
+                    placeholder="Enter your full name"
+                    placeholderTextColor="#94A3B8"
+                    value={editName}
+                    onChangeText={setEditName}
+                  />
+                </View>
+
+                {/* 3. Department Selection */}
+                <Text style={styles.inputSectionTitle}>DEPARTMENT *</Text>
+                <View style={styles.deptOptionsGrid}>
+                  {DEPARTMENTS.map((d) => {
+                    const isSelected = editDept === d.code;
+                    return (
+                      <TouchableOpacity
+                        key={d.code}
+                        style={[
+                          styles.deptOptionCard,
+                          isSelected && styles.deptOptionCardActive,
+                        ]}
+                        onPress={() => setEditDept(d.code)}
+                      >
+                        <Text
+                          style={[
+                            styles.deptOptionCode,
+                            isSelected && styles.deptOptionCodeActive,
+                          ]}
+                        >
+                          {d.code}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.deptOptionName,
+                            isSelected && styles.deptOptionNameActive,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {d.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* 4. Roll Number & PID */}
+                <View style={styles.rowInputsContainer}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.inputSectionTitle}>ROLL NO.</Text>
+                    <View style={styles.inputWrapper}>
+                      <TextInput
+                        style={styles.inputFieldPlain}
+                        placeholder="e.g. 42"
+                        placeholderTextColor="#94A3B8"
+                        value={editRoll}
+                        onChangeText={setEditRoll}
+                        autoCapitalize="characters"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <View style={styles.labelWithBadge}>
+                      <Text style={styles.inputSectionTitle}>PID *</Text>
+                      <Text
+                        style={[
+                          styles.pidCounterText,
+                          editPid.length === 6 && { color: '#16A34A' },
+                        ]}
+                      >
+                        {editPid.length}/6
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        editPid.length > 0 && editPid.length !== 6 && styles.inputWrapperError,
+                      ]}
+                    >
+                      <TextInput
+                        style={styles.inputFieldPlain}
+                        placeholder="6-digit PID"
+                        placeholderTextColor="#94A3B8"
+                        value={editPid}
+                        onChangeText={(txt) => setEditPid(txt.replace(/\D/g, '').slice(0, 6))}
+                        keyboardType="numeric"
+                        maxLength={6}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* Actions */}
+                <View style={styles.modalActionsRow}>
+                  <TouchableOpacity
+                    style={styles.cancelModalBtn}
+                    onPress={() => setEditModalVisible(false)}
+                    disabled={saving}
+                  >
+                    <Text style={styles.cancelModalBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.saveModalBtn}
+                    onPress={handleSaveProfile}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-sharp" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.saveModalBtnText}>Save Changes</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ── THEMED LOGOUT CONFIRMATION MODAL ──────────────────────────── */}
       <LogoutModal
@@ -261,20 +607,21 @@ const styles = StyleSheet.create({
     color: '#2E1065',
     letterSpacing: -0.4,
   },
-  headerActions: {
+  editProfileHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  actionIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#EDE9FE',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#DDD6FE',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9999,
+  },
+  editProfileHeaderBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 12,
+    color: '#4326B6',
   },
   mainScroll: {
     flex: 1,
@@ -305,32 +652,43 @@ const styles = StyleSheet.create({
   },
   avatarBox: {
     position: 'relative',
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: '#E0E7FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
+    overflow: 'visible',
+  },
+  avatarImage: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
   },
   avatarInitials: {
     fontFamily: 'Inter_700Bold',
     fontWeight: '700',
-    fontSize: 18,
+    fontSize: 20,
     color: '#3730A3',
   },
-  onlineBadge: {
+  editBadge: {
     position: 'absolute',
     bottom: -2,
     right: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#16A34A',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#4326B6',
     borderWidth: 2,
     borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
   },
   infoCol: {
     flex: 1,
@@ -349,55 +707,16 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 6,
   },
-  activeCampusIdBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#DCFCE7',
-    borderRadius: 9999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  activeCampusIdDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#16A34A',
-    marginRight: 4,
-  },
-  activeCampusIdText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontWeight: '600',
-    fontSize: 10,
-    color: '#15803D',
-  },
-  degreeText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontWeight: '600',
-    fontSize: 12.5,
-    color: '#1A191F',
-    marginTop: 2,
-  },
-  yearText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11.5,
-    color: '#64748B',
-    marginTop: 1,
-    marginBottom: 4,
-  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 3,
   },
-  rollText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11.5,
-    color: '#4326B6',
-  },
   emailText: {
     fontFamily: 'Inter_400Regular',
     fontSize: 11.5,
     color: '#64748B',
+    flex: 1,
   },
   deptSelectPill: {
     flexDirection: 'row',
@@ -416,6 +735,37 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: '#4326B6',
   },
+
+  // Academic Badges (Roll Number & PID)
+  academicChipsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  academicChip: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  academicChipLabel: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 9,
+    color: '#64748B',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  academicChipValue: {
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    fontSize: 12.5,
+    color: '#1E293B',
+  },
+
   cardDivider: {
     height: 1,
     backgroundColor: '#F1F5F9',
@@ -431,21 +781,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
   },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
   statNumberPurple: {
     fontFamily: 'Inter_800ExtraBold',
     fontWeight: '800',
     fontSize: 19,
     color: '#4326B6',
-  },
-  statNumberGreen: {
-    fontFamily: 'Inter_800ExtraBold',
-    fontWeight: '800',
-    fontSize: 19,
-    color: '#15803D',
   },
   statLabelMuted: {
     fontFamily: 'Inter_700Bold',
@@ -456,315 +796,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
-  statDivider: {
-    width: 1,
-    height: 26,
-    backgroundColor: '#E2E8F0',
-  },
 
-  // Mesh Active Pill Card
-  meshPillCard: {
-    backgroundColor: '#EDE9FE',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  meshIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  meshTextCol: {
-    flex: 1,
-  },
-  meshTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  meshTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 13.5,
-    color: '#1E1B4B',
-  },
-  meshDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#16A34A',
-    marginLeft: 6,
-  },
-  meshSubtitle: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 1,
-  },
-
-  // Academic Affiliation Card
-  academicCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 16,
-    marginBottom: 18,
-    shadowColor: '#1A191F',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  academicHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  academicHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  academicHeaderTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 11.5,
-    color: '#1A191F',
-    letterSpacing: 0.5,
-  },
-  academicDeptText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11.5,
-    color: '#64748B',
-  },
-  academicRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  academicIconBox: {
-    width: 28,
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  academicInfo: {
-    flex: 1,
-  },
-  academicLabel: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 9.5,
-    color: '#64748B',
-    letterSpacing: 0.5,
-  },
-  academicValueBold: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 14,
-    color: '#1A191F',
-    marginTop: 2,
-  },
-  academicSubText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11.5,
-    color: '#64748B',
-    marginTop: 1,
-  },
-  activePillSmall: {
-    backgroundColor: '#DCFCE7',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  activePillSmallText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 10.5,
-    color: '#15803D',
-  },
-  cabinBtnPill: {
-    backgroundColor: '#EDE9FE',
-    borderRadius: 9999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cabinBtnPillText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 11,
-    color: '#4326B6',
-  },
-  synchronizedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  synchronizedDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#16A34A',
-    marginRight: 4,
-  },
-  synchronizedText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11,
-    color: '#15803D',
-  },
-
-  // Activity & Office Hours
-  sectionHeadingText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 11,
-    color: '#4B4757',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-  activityItemCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    shadowColor: '#1A191F',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  activityIconPurple: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F3E8FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  activityIconAmber: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  activityInfo: {
-    flex: 1,
-  },
-  activityTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activityTitleText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 13,
-    color: '#1A191F',
-  },
-  todayPillBadge: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
-  },
-  todayPillText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 10,
-    color: '#64748B',
-  },
-  tomorrowPillBadge: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
-  },
-  tomorrowPillText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 10,
-    color: '#B45309',
-  },
-  activitySubText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-  },
-
-  // Smart Sensor & Beacon Preferences
-  preferencesCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 16,
-    marginTop: 8,
-    marginBottom: 14,
-    shadowColor: '#1A191F',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  preferencesHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  preferencesHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  preferencesHeaderTitle: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 11,
-    color: '#1A191F',
-    letterSpacing: 0.5,
-  },
-  preferencesMonitoredText: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 11,
-    color: '#4326B6',
-  },
-  prefRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  prefTextCol: {
-    flex: 1,
-    marginRight: 12,
-  },
-  prefTitleText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontWeight: '600',
-    fontSize: 13,
-    color: '#1A191F',
-  },
-  prefSubText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-    lineHeight: 16,
-  },
-
-  // Help & Support
+  // Campus Support
   supportCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
@@ -811,20 +844,297 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  footerSecureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  footerSecureText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11,
-    color: '#64748B',
-  },
   footerBuildText: {
     fontFamily: 'Inter_500Medium',
     fontSize: 10,
     color: '#94A3B8',
     letterSpacing: 0.5,
+  },
+
+  // ── MODAL STYLES ──────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  editCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 17,
+    color: '#1E1B4B',
+  },
+  modalSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalScroll: {
+    maxHeight: 520,
+  },
+  inputSectionTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 10.5,
+    color: '#475569',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 10,
+  },
+
+  // Avatar Picker
+  avatarPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  previewAvatarBox: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#EDE9FE',
+    borderWidth: 2,
+    borderColor: '#4326B6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    overflow: 'hidden',
+  },
+  previewAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewAvatarInitials: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 18,
+    color: '#4326B6',
+  },
+  presetsList: {
+    alignItems: 'center',
+    paddingVertical: 4,
+    gap: 8,
+  },
+  presetThumbnailBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  presetThumbnailSelected: {
+    borderColor: '#4326B6',
+    borderWidth: 2.5,
+  },
+  presetThumbnailImg: {
+    width: '100%',
+    height: '100%',
+  },
+  presetCheckmark: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#4326B6',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customUrlToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  customUrlToggleText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11.5,
+    color: '#4326B6',
+  },
+  customUrlContainer: {
+    marginBottom: 8,
+  },
+
+  // Form Inputs
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 46,
+  },
+  inputWrapperError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  inputFieldWithIcon: {
+    flex: 1,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13.5,
+    color: '#1E293B',
+    height: '100%',
+  },
+  inputField: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.5,
+    color: '#1E293B',
+  },
+  inputFieldPlain: {
+    flex: 1,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13.5,
+    color: '#1E293B',
+    height: '100%',
+  },
+
+  // Department Grid
+  deptOptionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  deptOptionCard: {
+    flex: 1,
+    minWidth: '46%',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  deptOptionCardActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#4326B6',
+    borderWidth: 1.5,
+  },
+  deptOptionCode: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 13,
+    color: '#475569',
+  },
+  deptOptionCodeActive: {
+    color: '#4326B6',
+  },
+  deptOptionName: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10.5,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  deptOptionNameActive: {
+    color: '#6D28D9',
+  },
+
+  // Row Inputs
+  rowInputsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 2,
+  },
+  labelWithBadge: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pidCounterText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 10,
+  },
+
+  // Modal Actions
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 22,
+    marginBottom: 10,
+  },
+  cancelModalBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelModalBtnText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13.5,
+    color: '#475569',
+  },
+  saveModalBtn: {
+    flex: 2,
+    backgroundColor: '#4326B6',
+    borderRadius: 12,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4326B6',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  saveModalBtnText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 13.5,
+    color: '#FFFFFF',
   },
 });

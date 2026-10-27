@@ -69,7 +69,8 @@ export default function StudentAccessControlPage() {
       return (
         (s.name || '').toLowerCase().includes(q) ||
         (s.email || '').toLowerCase().includes(q) ||
-        (s.rollNo || '').toLowerCase().includes(q)
+        (s.rollNumber || s.rollNo || '').toLowerCase().includes(q) ||
+        (s.pid || '').toLowerCase().includes(q)
       );
     });
   }, [students, searchQuery]);
@@ -232,26 +233,37 @@ export default function StudentAccessControlPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
             <thead>
               <tr style={{ backgroundColor: '#EFECF6', borderBottom: '1px solid #C8C5D3' }}>
-                <th style={{ padding: '14px 20px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px' }}>STUDENT</th>
-                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px' }}>COLLEGE EMAIL</th>
-                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px' }}>DECLARED DEPT</th>
-                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px' }}>LAST SEEN</th>
-                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px' }}>STATUS</th>
-                <th style={{ padding: '14px 20px', color: '#4B4757', fontWeight: 700, fontSize: '11.5px', letterSpacing: '0.4px', textAlign: 'right' }}>ACTION</th>
+                <th style={{ padding: '14px 16px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px', width: '50px' }}>SR.</th>
+                <th style={{ padding: '14px 16px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>ROLL NO.</th>
+                <th style={{ padding: '14px 16px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>PID</th>
+                <th style={{ padding: '14px 20px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>STUDENT NAME</th>
+                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>COLLEGE EMAIL</th>
+                <th style={{ padding: '14px 16px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>DEPT</th>
+                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>LAST SEEN</th>
+                <th style={{ padding: '14px 18px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px' }}>STATUS</th>
+                <th style={{ padding: '14px 20px', color: '#4B4757', fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px', textAlign: 'right' }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: '48px', textAlign: 'center', color: '#64748B' }}>
+                  <td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#64748B' }}>
                     {students.length === 0
                       ? `No students have declared ${effectiveDept} Department yet. Students are automatically listed here upon their first mobile sign-in.`
                       : 'No students match your search filter.'}
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((s) => {
+                filteredStudents.map((s, idx) => {
                   const isActive = s.is_active !== false && !s.revoked;
+                  const rollDisplay = s.rollNumber || s.rollNo || '—';
+                  const pidDisplay = s.pid || '—';
+                  const initials = (s.name || 'Student')
+                    .split(' ')
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((w) => w[0].toUpperCase())
+                    .join('') || 'ST';
 
                   return (
                     <tr
@@ -263,14 +275,69 @@ export default function StudentAccessControlPage() {
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(73, 47, 177, 0.02)')}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                     >
-                      {/* Name */}
+                      {/* Serial Number */}
+                      <td style={{ padding: '16px 16px', color: '#64748B', fontWeight: 700, fontSize: '12px' }}>
+                        {idx + 1}
+                      </td>
+
+                      {/* Roll Number */}
+                      <td style={{ padding: '16px 16px' }}>
+                        <span style={{
+                          backgroundColor: rollDisplay !== '—' ? '#F1F5F9' : 'transparent',
+                          color: rollDisplay !== '—' ? '#0F172A' : '#94A3B8',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontFamily: 'monospace',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                        }}>
+                          {rollDisplay}
+                        </span>
+                      </td>
+
+                      {/* PID */}
+                      <td style={{ padding: '16px 16px' }}>
+                        <span style={{
+                          backgroundColor: pidDisplay !== '—' ? '#EDE9FE' : 'transparent',
+                          color: pidDisplay !== '—' ? '#4326B6' : '#94A3B8',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontFamily: 'monospace',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          letterSpacing: '0.5px',
+                        }}>
+                          {pidDisplay}
+                        </span>
+                      </td>
+
+                      {/* Student Name & Avatar */}
                       <td style={{ padding: '16px 20px' }}>
-                        <div style={{ fontWeight: 700, color: '#1A191F' }}>{s.name || 'Student Member'}</div>
-                        {s.rollNo && (
-                          <div style={{ fontSize: '11px', color: '#64748B', fontFamily: 'monospace' }}>
-                            Roll: {s.rollNo}
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {s.photoURL ? (
+                            <img
+                              src={s.photoURL}
+                              alt={s.name}
+                              style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <div style={{
+                              width: '30px',
+                              height: '30px',
+                              borderRadius: '50%',
+                              backgroundColor: '#E0D8FD',
+                              color: '#341C94',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                            }}>
+                              {initials}
+                            </div>
+                          )}
+                          <div style={{ fontWeight: 700, color: '#1A191F' }}>{s.name || 'Student Member'}</div>
+                        </div>
                       </td>
 
                       {/* College Email */}
@@ -279,7 +346,7 @@ export default function StudentAccessControlPage() {
                       </td>
 
                       {/* Declared Department */}
-                      <td style={{ padding: '16px 18px' }}>
+                      <td style={{ padding: '16px 16px' }}>
                         <span style={{
                           backgroundColor: '#E0D8FD',
                           color: '#190D4A',

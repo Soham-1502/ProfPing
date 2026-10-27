@@ -138,12 +138,75 @@ export function AuthProvider({ children }) {
         });
         await update(ref(db, `studentAccess/${user.uid}`), {
           department: newDept,
+          hasDeclaredDept: true,
           lastSeen: Date.now(),
         });
       } catch (e) {
         console.warn('Update student department note:', e.message);
       }
     }
+  };
+
+  const updateStudentProfile = async ({ name, department: newDept, rollNumber, pid, photoURL }) => {
+    if (!user?.uid) throw new Error('User is not authenticated');
+
+    const cleanName = (name || '').trim();
+    if (!cleanName) throw new Error('Name cannot be empty');
+
+    const cleanDept = (newDept || department || 'CMPN').toUpperCase();
+    const cleanRoll = (rollNumber || '').trim();
+    const cleanPid = (pid || '').trim();
+
+    // Validate 6-digit PID if provided
+    if (cleanPid && !/^\d{6}$/.test(cleanPid)) {
+      throw new Error('PID must be exactly 6 numeric digits');
+    }
+
+    const updates = {
+      name: cleanName,
+      displayName: cleanName,
+      department: cleanDept,
+      rollNumber: cleanRoll,
+      rollNo: cleanRoll,
+      pid: cleanPid,
+      hasDeclaredDept: true,
+      lastModified: Date.now(),
+    };
+    if (photoURL !== undefined) {
+      updates.photoURL = photoURL;
+    }
+
+    // 1. Update local state
+    setUser((prev) => ({
+      ...prev,
+      displayName: cleanName,
+      ...(photoURL !== undefined ? { photoURL } : {}),
+    }));
+    setDepartment(cleanDept);
+    setProfile((prev) => ({
+      ...prev,
+      ...updates,
+    }));
+
+    // 2. Persist to Firebase RTDB users and studentAccess
+    try {
+      await update(ref(db, `users/${user.uid}`), updates);
+      await update(ref(db, `studentAccess/${user.uid}`), {
+        name: cleanName,
+        email: user.email,
+        department: cleanDept,
+        rollNumber: cleanRoll,
+        rollNo: cleanRoll,
+        pid: cleanPid,
+        hasDeclaredDept: true,
+        ...(photoURL !== undefined ? { photoURL } : {}),
+        lastSeen: Date.now(),
+      });
+    } catch (err) {
+      console.warn('Realtime DB student profile update note:', err.message);
+    }
+
+    return updates;
   };
 
   useEffect(() => {
@@ -230,9 +293,14 @@ export function AuthProvider({ children }) {
               uid: authUid,
               email: normalized,
               displayName: val.name || val.displayName || fallbackName,
+              name: val.name || val.displayName || fallbackName,
               role: resolvedRole,
               department: val.department || null,
               hasDeclaredDept: !!val.hasDeclaredDept,
+              rollNumber: val.rollNumber || val.rollNo || '',
+              rollNo: val.rollNumber || val.rollNo || '',
+              pid: val.pid || '',
+              photoURL: val.photoURL || null,
             };
         }
       } catch (err) {
@@ -434,6 +502,12 @@ export function AuthProvider({ children }) {
     setClaims({ role: resolved.role, department: resolved.department });
     setProfile(resolved);
 
+    if (resolved.role === ROLES.STUDENT && (!resolved?.hasDeclaredDept || !resolved.department)) {
+      setNeedsDepartmentSelection(true);
+    } else {
+      setNeedsDepartmentSelection(false);
+    }
+
     return { user: resolvedUser, role: resolved.role, department: resolved.department };
   };
 
@@ -469,6 +543,13 @@ export function AuthProvider({ children }) {
         setDepartment(userDept);
         setClaims({ role: userRole, department: userDept });
         setProfile(resolved);
+
+        if (userRole === ROLES.STUDENT && (!resolved?.hasDeclaredDept || !userDept)) {
+          setNeedsDepartmentSelection(true);
+        } else {
+          setNeedsDepartmentSelection(false);
+        }
+
         return { user: userObj, role: userRole, department: userDept };
       } catch (err) {
         console.warn('Firebase signIn note:', err.code, err.message);
@@ -493,6 +574,13 @@ export function AuthProvider({ children }) {
             setDepartment(resolved.department);
             setClaims({ role: resolved.role, department: resolved.department });
             setProfile(resolved);
+
+            if (resolved.role === ROLES.STUDENT && (!resolved?.hasDeclaredDept || !resolved.department)) {
+              setNeedsDepartmentSelection(true);
+            } else {
+              setNeedsDepartmentSelection(false);
+            }
+
             return { user: userObj, role: resolved.role, department: resolved.department };
           } catch (createErr) {
             console.warn('Firebase auto-create note:', createErr.code, createErr.message);
@@ -518,6 +606,12 @@ export function AuthProvider({ children }) {
     setClaims({ role: mockProfile.role, department: mockProfile.department });
     setProfile(mockProfile);
 
+    if (mockProfile.role === ROLES.STUDENT && (!mockProfile?.hasDeclaredDept || !mockProfile.department)) {
+      setNeedsDepartmentSelection(true);
+    } else {
+      setNeedsDepartmentSelection(false);
+    }
+
     return { user: mockUser, role: mockProfile.role, department: mockProfile.department };
   };
 
@@ -527,6 +621,7 @@ export function AuthProvider({ children }) {
     setDepartment(null);
     setClaims(null);
     setProfile(null);
+    setNeedsDepartmentSelection(false);
     try {
       await fbSignOut(auth);
     } catch (e) {
@@ -548,6 +643,7 @@ export function AuthProvider({ children }) {
         needsDepartmentSelection,
         declareStudentDepartment,
         updateStudentDepartment,
+        updateStudentProfile,
         login,
         loginWithGoogle,
         logout,
