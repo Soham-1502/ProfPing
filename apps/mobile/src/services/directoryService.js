@@ -8,38 +8,8 @@ import { ref, onValue, off } from 'firebase/database';
 import { db } from './firebase';
 import { STATUS_KEYS, STATUS_CONFIG } from '@profping/shared';
 
-// Institutional Department HODs across all SFIT engineering departments
+// Verified institutional department HOD (Dr. Nitika Rai - HOD ECS)
 export const ALL_DEPT_HODS = [
-  {
-    uid: 'hod-cmpn-dr-kavita-sonawane',
-    name: 'Dr. Kavita Sonawane',
-    department: 'CMPN',
-    designation: 'Professor & HOD',
-    email: 'hod.cmpn@sfit.ac.in',
-    cabin: 'Room 401',
-    floor: '4th Floor',
-    wing: 'Main Wing',
-    intercom: 'Ext. 4010',
-    officeHours: '10:00 AM - 01:00 PM',
-    isHod: true,
-    role: 'hod',
-    isVerified: true,
-  },
-  {
-    uid: 'hod-inft-dr-joanne-gomes',
-    name: 'Dr. Joanne Gomes',
-    department: 'INFT',
-    designation: 'Professor & HOD',
-    email: 'hod.inft@sfit.ac.in',
-    cabin: 'Room 402',
-    floor: '4th Floor',
-    wing: 'IT Wing',
-    intercom: 'Ext. 4020',
-    officeHours: '09:30 AM - 12:30 PM',
-    isHod: true,
-    role: 'hod',
-    isVerified: true,
-  },
   {
     uid: 'hod-ecs-dr-nitika-rai',
     name: 'Dr. Nitika Rai',
@@ -51,21 +21,6 @@ export const ALL_DEPT_HODS = [
     wing: 'Academic Wing B',
     intercom: 'Ext. 3010',
     officeHours: '10:00 AM - 12:00 PM',
-    isHod: true,
-    role: 'hod',
-    isVerified: true,
-  },
-  {
-    uid: 'hod-extc-dr-gautam-shah',
-    name: 'Dr. Gautam Shah',
-    department: 'EXTC',
-    designation: 'Professor & HOD',
-    email: 'hod.extc@sfit.ac.in',
-    cabin: 'Room 201',
-    floor: '2nd Floor',
-    wing: 'Telecom Wing',
-    intercom: 'Ext. 2010',
-    officeHours: '11:00 AM - 02:00 PM',
     isHod: true,
     role: 'hod',
     isVerified: true,
