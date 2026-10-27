@@ -243,7 +243,8 @@ export default function StudentFavoritesPage() {
         ) : (
           <View style={styles.cardList}>
             {starredFaculty.map((fac) => {
-              const rawState = (fac.status?.state || 'available').toLowerCase();
+              const state = fac.status?.state || STATUS_KEYS.AVAILABLE;
+              const rawState = (state || 'available').toLowerCase();
               const badge = BADGE_MAP[rawState] || BADGE_MAP.available;
               const updatedInfo = getFacultyUpdatedInfo(fac);
 
@@ -253,8 +254,8 @@ export default function StudentFavoritesPage() {
                   <View style={styles.cardTopRow}>
                     {/* Avatar with Status Dot */}
                     <View style={styles.avatarWrapper}>
-                      {fac.photoUrl ? (
-                        <Image source={{ uri: fac.photoUrl }} style={styles.avatarImage} />
+                      {fac.photoURL || fac.photoUrl ? (
+                        <Image source={{ uri: fac.photoURL || fac.photoUrl }} style={styles.avatarImage} />
                       ) : (
                         <View style={styles.avatarFallback}>
                           <Text style={styles.avatarInitials}>
@@ -279,9 +280,17 @@ export default function StudentFavoritesPage() {
 
                     {/* Faculty Info */}
                     <View style={styles.facultyInfo}>
-                      <Text style={styles.facultyName} numberOfLines={1}>
-                        {fac.name}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Text style={styles.facultyName} numberOfLines={1}>
+                          {fac.name}
+                        </Text>
+                        {(fac.isHod || fac.role === 'hod' || (fac.designation || '').toLowerCase().includes('hod')) && (
+                          <View style={styles.hodCardBadge}>
+                            <FontAwesome5 name="user-tie" size={8} color="#4326B6" style={{ marginRight: 3 }} />
+                            <Text style={styles.hodCardBadgeText}>HOD</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.facultyDesignation} numberOfLines={1}>
                         {fac.designation || 'Faculty'} • {fac.department || 'Academic Dept'}
                       </Text>
@@ -567,6 +576,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1A191F',
     marginBottom: 2,
+  },
+  hodCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    marginLeft: 6,
+    marginBottom: 2,
+  },
+  hodCardBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
+    fontSize: 9.5,
+    color: '#4326B6',
+    letterSpacing: 0.4,
   },
   facultyDesignation: {
     fontFamily: 'Inter_500Medium',
