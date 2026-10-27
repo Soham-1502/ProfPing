@@ -23,11 +23,20 @@ export function subscribeToLiveDirectory(onUpdate) {
     try {
       const facultyRef = ref(db, 'faculty');
       const statusRef = ref(db, 'status');
+      const usersRef = ref(db, 'users');
 
       let facultyCache = {};
       let statusCache = {};
+      let usersCache = {};
 
       const computeJoinedList = () => {
+        // Build email to user UID map from users table
+        const emailToUserUid = {};
+        Object.entries(usersCache).forEach(([uid, u]) => {
+          const email = (u?.email || '').toLowerCase().trim();
+          if (email) emailToUserUid[email] = uid;
+        });
+
         // Base mapping with institutional faculty members
         const facultyMap = {};
         MOCK_DIRECTORY.forEach((item) => {
@@ -41,11 +50,48 @@ export function subscribeToLiveDirectory(onUpdate) {
 
         // Map live status from Firebase statusCache
         const list = Object.values(facultyMap).map((fac) => {
-          const liveStatus = statusCache[fac.uid] || fac.status || {
-            state: STATUS_KEYS.AVAILABLE,
-            message: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].defaultMessage,
-            updatedAt: Date.now(),
-          };
+          const email = (fac.email || '').toLowerCase().trim();
+
+          // Find any user in usersCache with matching email that has a status entry
+          const matchedUserUid = Object.keys(usersCache).find((uId) => {
+            const uEmail = (usersCache[uId]?.email || '').toLowerCase().trim();
+            return uEmail === email && statusCache[uId] !== undefined;
+          });
+
+          // Multi-key live status resolution:
+          // 1. Direct UID match in status/
+          // 2. Auth UID from users/
+          // 3. Explicit authUid property if present on faculty record
+          // 4. Any status entry matching email
+          let liveStatus =
+            statusCache[fac.uid] ||
+            (matchedUserUid && statusCache[matchedUserUid]) ||
+            (fac.authUid && statusCache[fac.authUid]);
+
+          if (!liveStatus) {
+            const found = Object.values(statusCache).find(
+              (st) => (st?.email || '').toLowerCase().trim() === email
+            );
+            if (found) liveStatus = found;
+          }
+
+          if (!liveStatus) {
+            const fallbackUserUid = Object.keys(usersCache).find(
+              (uId) => (usersCache[uId]?.email || '').toLowerCase().trim() === email
+            );
+            if (fallbackUserUid && statusCache[fallbackUserUid]) {
+              liveStatus = statusCache[fallbackUserUid];
+            }
+          }
+
+          if (!liveStatus) {
+            liveStatus = fac.status || {
+              state: STATUS_KEYS.AVAILABLE,
+              message: STATUS_CONFIG[STATUS_KEYS.AVAILABLE].defaultMessage,
+              updatedAt: Date.now(),
+            };
+          }
+
           return {
             ...fac,
             status: liveStatus,
@@ -65,9 +111,15 @@ export function subscribeToLiveDirectory(onUpdate) {
         computeJoinedList();
       });
 
+      const unsubUsers = onValue(usersRef, (snapshot) => {
+        usersCache = snapshot.exists() ? (snapshot.val() || {}) : {};
+        computeJoinedList();
+      });
+
       return () => {
-        off(facultyRef);
-        off(statusRef);
+        if (typeof unsubFaculty === 'function') unsubFaculty();
+        if (typeof unsubStatus === 'function') unsubStatus();
+        if (typeof unsubUsers === 'function') unsubUsers();
       };
     } catch (e) {
       console.warn('Realtime subscription error, using mock directory:', e.message);

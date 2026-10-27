@@ -111,13 +111,36 @@ export default function HodDepartmentScreen() {
   const [liveStatuses, setLiveStatuses] = useState({});
   const [facultyRoster, setFacultyRoster] = useState([]);
   const [facultyLogs, setFacultyLogs] = useState({});
+  const [usersMap, setUsersMap] = useState({});
   const [institutionSettings, setInstitutionSettings] = useState(DEFAULT_INSTITUTION_SETTINGS);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [refreshing, setRefreshing] = useState(false);
 
-  // 1. Subscribe to live Firebase RTDB statuses, faculty, logs & settings
+  // Helper to resolve live status across multi-key mappings
+  const resolveLiveStatus = (f) => {
+    if (!f) return {};
+    const email = (f.email || '').toLowerCase().trim();
+    // 1. Direct UID match
+    if (f.uid && liveStatuses[f.uid]) return liveStatuses[f.uid];
+    // 2. Auth UID on faculty record
+    if (f.authUid && liveStatuses[f.authUid]) return liveStatuses[f.authUid];
+    // 3. User mapping match via users table
+    const userMatchUid = Object.keys(usersMap || {}).find(
+      (uId) => (usersMap[uId]?.email || '').toLowerCase().trim() === email
+    );
+    if (userMatchUid && liveStatuses[userMatchUid]) return liveStatuses[userMatchUid];
+    // 4. Status entry with matching email
+    const statusWithEmail = Object.values(liveStatuses || {}).find(
+      (st) => (st?.email || '').toLowerCase().trim() === email
+    );
+    if (statusWithEmail) return statusWithEmail;
+    // 5. Fallback to faculty record's status
+    return f.status || {};
+  };
+
+  // 1. Subscribe to live Firebase RTDB statuses, faculty, users, logs & settings
   useEffect(() => {
     // Live Statuses
     const statusRef = ref(db, 'status');
@@ -144,6 +167,14 @@ export default function HodDepartmentScreen() {
       }
     });
 
+    // Users (for authUid to faculty linkage)
+    const usersRef = ref(db, 'users');
+    const unsubUsers = onValue(usersRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setUsersMap(snapshot.val() || {});
+      }
+    });
+
     // Logs (for desk hour computation)
     const logsRef = ref(db, 'logs');
     const unsubLogs = onValue(logsRef, (snapshot) => {
@@ -163,6 +194,7 @@ export default function HodDepartmentScreen() {
     return () => {
       off(statusRef);
       off(facultyRef);
+      off(usersRef);
       off(logsRef);
       off(settingsRef);
     };
@@ -171,9 +203,10 @@ export default function HodDepartmentScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      const [snapStatus, snapFaculty, snapLogs, snapSettings] = await Promise.all([
+      const [snapStatus, snapFaculty, snapUsers, snapLogs, snapSettings] = await Promise.all([
         get(ref(db, 'status')),
         get(ref(db, 'faculty')),
+        get(ref(db, 'users')),
         get(ref(db, 'logs')),
         get(ref(db, 'settings')),
       ]);
@@ -189,6 +222,7 @@ export default function HodDepartmentScreen() {
           });
         setFacultyRoster(deptFaculty);
       }
+      if (snapUsers.exists()) setUsersMap(snapUsers.val() || {});
       if (snapLogs.exists()) setFacultyLogs(snapLogs.val() || {});
       if (snapSettings.exists()) {
         setInstitutionSettings({ ...DEFAULT_INSTITUTION_SETTINGS, ...snapSettings.val() });
@@ -198,8 +232,16 @@ export default function HodDepartmentScreen() {
   };
 
   // Helper to compute desk hours for a faculty member
-  const getTodayDeskHours = (uid) => {
-    const rawLogs = facultyLogs[uid];
+  const getTodayDeskHours = (f) => {
+    if (!f) return 0;
+    const email = (f.email || '').toLowerCase().trim();
+    const userMatchUid = Object.keys(usersMap || {}).find(
+      (uId) => (usersMap[uId]?.email || '').toLowerCase().trim() === email
+    );
+    const rawLogs =
+      facultyLogs[f.uid] ||
+      (f.authUid && facultyLogs[f.authUid]) ||
+      (userMatchUid && facultyLogs[userMatchUid]);
     if (!rawLogs) return 0;
     const logsArray = Object.entries(rawLogs).map(([id, val]) => ({
       id,
@@ -219,7 +261,7 @@ export default function HodDepartmentScreen() {
     let offCampusCount = 0;
 
     facultyRoster.forEach((f) => {
-      const live = liveStatuses[f.uid] || f.status || {};
+      const live = resolveLiveStatus(f);
       const st = (live.state || STATUS_KEYS.AVAILABLE).toLowerCase();
       if (st === 'available') availableCount++;
       else if (st === 'in_lecture') inLectureCount++;
@@ -234,12 +276,12 @@ export default function HodDepartmentScreen() {
       busyCount,
       offCampusCount,
     };
-  }, [facultyRoster, liveStatuses]);
+  }, [facultyRoster, liveStatuses, usersMap]);
 
   // Filter roster
   const filteredRoster = useMemo(() => {
     return facultyRoster.filter((f) => {
-      const live = liveStatuses[f.uid] || f.status || {};
+      const live = resolveLiveStatus(f);
       const state = (live.state || STATUS_KEYS.AVAILABLE).toLowerCase();
 
       // Filter chip match
@@ -259,7 +301,7 @@ export default function HodDepartmentScreen() {
 
       return true;
     });
-  }, [facultyRoster, liveStatuses, activeFilter, searchQuery]);
+  }, [facultyRoster, liveStatuses, usersMap, activeFilter, searchQuery]);
 
   if (!fontsLoaded) {
     return (
@@ -474,11 +516,11 @@ export default function HodDepartmentScreen() {
             </View>
           ) : (
             filteredRoster.map((fac) => {
-              const live = liveStatuses[fac.uid] || fac.status || {};
+              const live = resolveLiveStatus(fac);
               const state = (live.state || STATUS_KEYS.AVAILABLE).toLowerCase();
               const badge = BADGE_MAP[state] || BADGE_MAP.available;
               const updatedInfo = getFacultyUpdatedInfo(fac, live);
-              const todayDeskHours = getTodayDeskHours(fac.uid);
+              const todayDeskHours = getTodayDeskHours(fac);
 
               const initials = (fac.name || 'Faculty')
                 .split(' ')

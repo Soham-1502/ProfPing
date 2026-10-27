@@ -45,7 +45,7 @@ const STORAGE_KEY_NOTE = '@profping_faculty_status_note';
 const STORAGE_KEY_TIME = '@profping_faculty_status_time';
 
 export function FacultyProvider({ children }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const facultyUid = user?.uid || null;
 
   // Instant synchronous cache read for this specific faculty member
@@ -222,7 +222,10 @@ export function FacultyProvider({ children }) {
     }
 
     // 2. Network broadcast to Firebase RTDB
-    return await broadcastStatus(facultyUid, backendState, message);
+    return await broadcastStatus(facultyUid, backendState, message, {
+      email: user?.email,
+      directoryUid: profile?.directoryUid || profile?.uid,
+    });
   };
 
   return (

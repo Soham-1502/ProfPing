@@ -324,13 +324,29 @@ export function AuthProvider({ children }) {
       const facultySnapshot = await get(ref(db, 'faculty'));
       if (facultySnapshot.exists()) {
         const allFaculty = facultySnapshot.val() || {};
-        const match = Object.values(allFaculty).find(
-          (f) => (f.email || '').toLowerCase() === normalized
+        const matchEntry = Object.entries(allFaculty).find(
+          ([_, f]) => (f.email || '').toLowerCase() === normalized
         );
-        if (match) {
+        if (matchEntry) {
+          const [facKey, match] = matchEntry;
           const fRole = (match.role || '').toLowerCase();
+
+          // Link authUid in users/ and on faculty record for seamless status resolution
+          if (authUid) {
+            try {
+              await update(ref(db, `users/${authUid}`), {
+                directoryUid: facKey,
+                facultyUid: facKey,
+              });
+              await update(ref(db, `faculty/${facKey}`), {
+                authUid,
+              });
+            } catch (_) {}
+          }
+
           return {
-            uid: authUid || match.uid || `faculty-${Date.now()}`,
+            uid: authUid || match.uid || facKey,
+            directoryUid: facKey,
             email: normalized,
             displayName: match.name || fallbackName,
             role: fRole === 'hod' ? ROLES.HOD : ROLES.FACULTY,

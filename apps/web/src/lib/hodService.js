@@ -13,22 +13,140 @@ import { STATUS_KEYS } from '@profping/shared';
  */
 export function subscribeToDepartmentFaculty(department, callback) {
   const facultyRef = ref(db, 'faculty');
-  const unsubscribe = onValue(
+  const statusRef = ref(db, 'status');
+  const usersRef = ref(db, 'users');
+  const logsRef = ref(db, 'logs');
+
+  let facultyCache = {};
+  let statusCache = {};
+  let usersCache = {};
+  let logsCache = {};
+
+  const emitJoinedFaculty = () => {
+    const list = Object.entries(facultyCache).map(([facUid, fac]) => {
+      const email = (fac.email || '').toLowerCase().trim();
+
+      // Find any user in usersCache with matching email that has a status entry
+      const matchedUserUid = Object.keys(usersCache).find((uId) => {
+        const uEmail = (usersCache[uId]?.email || '').toLowerCase().trim();
+        return uEmail === email && statusCache[uId] !== undefined;
+      });
+
+      // Find any user in usersCache with matching email that has logs
+      const matchedLogsUserUid = Object.keys(usersCache).find((uId) => {
+        const uEmail = (usersCache[uId]?.email || '').toLowerCase().trim();
+        return uEmail === email && logsCache[uId] !== undefined;
+      });
+
+      // Multi-key live status resolution:
+      // 1. Direct UID match in status/
+      // 2. Auth UID match from users/
+      // 3. Explicit authUid property if present on faculty record
+      // 4. Any status entry matching email
+      let liveStatus =
+        statusCache[facUid] ||
+        (matchedUserUid && statusCache[matchedUserUid]) ||
+        (fac.authUid && statusCache[fac.authUid]);
+
+      if (!liveStatus) {
+        const found = Object.values(statusCache).find(
+          (st) => (st?.email || '').toLowerCase().trim() === email
+        );
+        if (found) liveStatus = found;
+      }
+
+      if (!liveStatus) {
+        // Fallback to any user UID matching email even if status entry was absent
+        const fallbackUserUid = Object.keys(usersCache).find(
+          (uId) => (usersCache[uId]?.email || '').toLowerCase().trim() === email
+        );
+        if (fallbackUserUid && statusCache[fallbackUserUid]) {
+          liveStatus = statusCache[fallbackUserUid];
+        }
+      }
+
+      if (!liveStatus) {
+        liveStatus = fac.status || {
+          state: STATUS_KEYS.OFF_CAMPUS,
+          message: 'Off campus',
+          updatedAt: fac.updatedAt || Date.now(),
+        };
+      }
+
+      // Resolve live telemetry logs
+      const rawLogs =
+        logsCache[facUid] ||
+        (matchedLogsUserUid && logsCache[matchedLogsUserUid]) ||
+        (matchedUserUid && logsCache[matchedUserUid]) ||
+        (fac.authUid && logsCache[fac.authUid]) ||
+        fac.sampleLogs ||
+        [];
+      const sampleLogs = Array.isArray(rawLogs) ? rawLogs : Object.values(rawLogs);
+
+      return {
+        ...fac,
+        uid: facUid,
+        status: liveStatus,
+        sampleLogs: sampleLogs.length > 0 ? sampleLogs : fac.sampleLogs || [],
+      };
+    }).filter((f) => {
+      if (!department || department === 'ALL') return true;
+      return (f.department || '').toUpperCase() === department.toUpperCase();
+    });
+
+    callback(list);
+  };
+
+  const unsubFaculty = onValue(
     facultyRef,
     (snapshot) => {
-      const facultyMap = snapshot.val() || {};
-      const list = Object.values(facultyMap).filter(
-        (f) => !department || department === 'ALL' || (f.department || '').toUpperCase() === (department || '').toUpperCase()
-      );
-      callback(list);
+      facultyCache = snapshot.val() || {};
+      emitJoinedFaculty();
     },
     (error) => {
       console.warn('Faculty snapshot listener note:', error.message);
-      callback([]);
     }
   );
 
-  return () => unsubscribe();
+  const unsubStatus = onValue(
+    statusRef,
+    (snapshot) => {
+      statusCache = snapshot.val() || {};
+      emitJoinedFaculty();
+    },
+    (error) => {
+      console.warn('Status snapshot listener note:', error.message);
+    }
+  );
+
+  const unsubUsers = onValue(
+    usersRef,
+    (snapshot) => {
+      usersCache = snapshot.val() || {};
+      emitJoinedFaculty();
+    },
+    (error) => {
+      console.warn('Users snapshot listener note:', error.message);
+    }
+  );
+
+  const unsubLogs = onValue(
+    logsRef,
+    (snapshot) => {
+      logsCache = snapshot.val() || {};
+      emitJoinedFaculty();
+    },
+    (error) => {
+      console.warn('Logs snapshot listener note:', error.message);
+    }
+  );
+
+  return () => {
+    if (typeof unsubFaculty === 'function') unsubFaculty();
+    if (typeof unsubStatus === 'function') unsubStatus();
+    if (typeof unsubUsers === 'function') unsubUsers();
+    if (typeof unsubLogs === 'function') unsubLogs();
+  };
 }
 
 /**

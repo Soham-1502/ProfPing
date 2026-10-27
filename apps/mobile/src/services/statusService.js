@@ -42,7 +42,7 @@ const mockLogsStore = {};
  * @param {string} [customMessage] - Optional status message (max 140 chars)
  * @returns {Promise<{ success: boolean, state: string, message: string, timestamp: number }>}
  */
-export async function broadcastStatus(facultyUid, state, customMessage = '') {
+export async function broadcastStatus(facultyUid, state, customMessage = '', optionalMeta = {}) {
   if (!facultyUid) {
     throw new Error('Faculty UID is required to broadcast status');
   }
@@ -64,12 +64,24 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
     message: cleanMessage,
     updatedAt: now,
   };
+  if (optionalMeta?.email) {
+    statusPayload.email = optionalMeta.email.toLowerCase().trim();
+  }
 
   if (!isPlaceholderKey) {
     try {
       // 1. Direct write to status/{uid} on Firebase Realtime Database
       const statusRef = ref(db, `status/${uid}`);
       await set(statusRef, statusPayload);
+
+      // If directoryUid exists and is different from uid, synchronize status under directoryUid as well
+      const directoryUid = optionalMeta?.directoryUid;
+      if (directoryUid && directoryUid !== uid) {
+        try {
+          await set(ref(db, `status/${directoryUid}`), statusPayload);
+          await set(ref(db, `faculty/${directoryUid}/status`), statusPayload);
+        } catch (_) {}
+      }
 
       // 2. Append to logs/{uid}
       try {
@@ -80,6 +92,11 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
         };
         const logRef = push(ref(db, `logs/${uid}`));
         await set(logRef, logPayload);
+
+        if (directoryUid && directoryUid !== uid) {
+          const dirLogRef = push(ref(db, `logs/${directoryUid}`));
+          await set(dirLogRef, logPayload);
+        }
       } catch (logErr) {
         console.warn('Realtime DB log append note:', logErr.message);
       }
@@ -88,6 +105,7 @@ export async function broadcastStatus(facultyUid, state, customMessage = '') {
 
       // Keep in-memory cache synchronized
       mockStatusStore[uid] = statusPayload;
+      if (directoryUid) mockStatusStore[directoryUid] = statusPayload;
 
       return {
         success: true,
