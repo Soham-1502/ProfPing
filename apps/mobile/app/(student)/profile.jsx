@@ -29,15 +29,6 @@ import FloatingNavbar from '../../src/components/FloatingNavbar';
 import LogoutModal from '../../src/components/LogoutModal';
 import { getStarredFacultyUids } from '../../src/services/favoritesStorage';
 
-const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-];
-
 const DEPARTMENTS = [
   { code: 'CMPN', name: 'Computer' },
   { code: 'ECS', name: 'Electronics & CS' },
@@ -65,7 +56,6 @@ export default function StudentProfilePage() {
   const [editRoll, setEditRoll] = useState('');
   const [editPid, setEditPid] = useState('');
   const [editPhotoURL, setEditPhotoURL] = useState('');
-  const [showCustomUrlInput, setShowCustomUrlInput] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const studentName =
@@ -100,7 +90,6 @@ export default function StudentProfilePage() {
     setEditRoll(rollNumber);
     setEditPid(pid);
     setEditPhotoURL(currentPhoto || '');
-    setShowCustomUrlInput(false);
     setEditModalVisible(true);
   };
 
@@ -328,9 +317,9 @@ export default function StudentProfilePage() {
                 style={styles.modalScroll}
                 contentContainerStyle={{ paddingBottom: 20 }}
               >
-                {/* 1. Profile Photo Picker */}
+                {/* 1. Profile Photo (Image URL) */}
                 <Text style={styles.inputSectionTitle}>PROFILE PHOTO</Text>
-                <View style={styles.avatarPickerRow}>
+                <View style={styles.photoSectionCard}>
                   <View style={styles.previewAvatarBox}>
                     {editPhotoURL ? (
                       <Image source={{ uri: editPhotoURL }} style={styles.previewAvatarImage} />
@@ -339,74 +328,33 @@ export default function StudentProfilePage() {
                     )}
                   </View>
 
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.presetsList}
-                  >
-                    {/* Reset to Initials Option */}
-                    <TouchableOpacity
-                      style={[
-                        styles.presetThumbnailBox,
-                        !editPhotoURL && styles.presetThumbnailSelected,
-                      ]}
-                      onPress={() => setEditPhotoURL('')}
-                    >
-                      <Ionicons name="person-circle-outline" size={28} color="#64748B" />
-                    </TouchableOpacity>
-
-                    {PRESET_AVATARS.map((uri, index) => {
-                      const isSelected = editPhotoURL === uri;
-                      return (
+                  <View style={styles.photoInputsCol}>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="link-outline" size={16} color="#64748B" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.inputFieldWithIcon}
+                        placeholder="Image URL (e.g. https://.../photo.jpg)"
+                        placeholderTextColor="#94A3B8"
+                        value={editPhotoURL}
+                        onChangeText={setEditPhotoURL}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {Boolean(editPhotoURL) && (
                         <TouchableOpacity
-                          key={index}
-                          style={[
-                            styles.presetThumbnailBox,
-                            isSelected && styles.presetThumbnailSelected,
-                          ]}
-                          onPress={() => setEditPhotoURL(uri)}
+                          onPress={() => setEditPhotoURL('')}
+                          style={styles.clearUrlBtn}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Image source={{ uri }} style={styles.presetThumbnailImg} />
-                          {isSelected && (
-                            <View style={styles.presetCheckmark}>
-                              <Ionicons name="checkmark" size={10} color="#FFFFFF" />
-                            </View>
-                          )}
+                          <Ionicons name="close-circle" size={16} color="#94A3B8" />
                         </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-
-                {/* Custom URL Toggle */}
-                <TouchableOpacity
-                  style={styles.customUrlToggleBtn}
-                  onPress={() => setShowCustomUrlInput(!showCustomUrlInput)}
-                >
-                  <Ionicons
-                    name={showCustomUrlInput ? 'chevron-up' : 'link-outline'}
-                    size={14}
-                    color="#4326B6"
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={styles.customUrlToggleText}>
-                    {showCustomUrlInput ? 'Hide Custom Photo URL' : 'Use Custom Image URL'}
-                  </Text>
-                </TouchableOpacity>
-
-                {showCustomUrlInput && (
-                  <View style={styles.customUrlContainer}>
-                    <TextInput
-                      style={styles.inputField}
-                      placeholder="https://example.com/avatar.jpg"
-                      placeholderTextColor="#94A3B8"
-                      value={editPhotoURL}
-                      onChangeText={setEditPhotoURL}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
+                      )}
+                    </View>
+                    <Text style={styles.photoHelperText}>
+                      Paste an image URL (PNG, JPG, WebP) to display as your photo, or leave empty to use your initials.
+                    </Text>
                   </View>
-                )}
+                </View>
 
                 {/* 2. Full Name Input */}
                 <Text style={styles.inputSectionTitle}>FULL NAME *</Text>
@@ -915,11 +863,16 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  // Avatar Picker
-  avatarPickerRow: {
+  // Avatar URL section
+  photoSectionCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
   },
   previewAvatarBox: {
     width: 54,
@@ -942,56 +895,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#4326B6',
   },
-  presetsList: {
-    alignItems: 'center',
-    paddingVertical: 4,
-    gap: 8,
+  photoInputsCol: {
+    flex: 1,
   },
-  presetThumbnailBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
+  clearUrlBtn: {
+    paddingLeft: 6,
     justifyContent: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  presetThumbnailSelected: {
-    borderColor: '#4326B6',
-    borderWidth: 2.5,
-  },
-  presetThumbnailImg: {
-    width: '100%',
-    height: '100%',
-  },
-  presetCheckmark: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#4326B6',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  customUrlToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    marginBottom: 8,
-  },
-  customUrlToggleText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11.5,
-    color: '#4326B6',
-  },
-  customUrlContainer: {
-    marginBottom: 8,
+  photoHelperText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10.5,
+    color: '#64748B',
+    marginTop: 4,
+    lineHeight: 14,
   },
 
   // Form Inputs
