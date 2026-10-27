@@ -11,47 +11,46 @@ import {
   Platform,
   Modal,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
+import { ref, onValue, update } from 'firebase/database';
+import { db } from '../../src/services/firebase';
 import safeStorage from '../../src/services/safeStorage';
 import { useAuth } from '../../src/context/AuthContext';
 import { useFaculty } from '../../src/context/FacultyContext';
-
 import LogoutModal from '../../src/components/LogoutModal';
 
 const STORAGE_KEY_OFFICE_HOURS = '@profping_faculty_office_hours';
 const STORAGE_KEY_INTERCOM = '@profping_faculty_intercom';
 const STORAGE_KEY_NOTIFS = '@profping_faculty_notifications';
 const STORAGE_KEY_VISIBILITY = '@profping_faculty_visibility';
-const STORAGE_KEY_PHOTO_IDX = '@profping_faculty_photo_idx';
-
-const AVATAR_PRESETS = [
-  { id: 0, label: 'Official Institutional', source: require('../../assets/faculty-anjali.jpg') },
-  { id: 1, label: 'Campus Badge Portrait', source: require('../../assets/profping-icon.jpg') },
-];
 
 export default function FacultyProfileView({ onBack }) {
   const router = useRouter();
-  const { user, role, department, logout } = useAuth();
+  const { user, profile, role, department, logout } = useAuth();
   const {
     autoResetEnabled,
     setAutoResetEnabled,
     revertTime,
     selectedStatusId,
     statusCount,
+    logs,
   } = useFaculty();
 
-  // ── Faculty-Controlled Editable Details ──────────────────────────────────
-  const [officeHours, setOfficeHours] = useState('09:00 AM  -  05:00 PM');
-  const [intercomExt, setIntercomExt] = useState('Ext. 402');
-  const [avatarIndex, setAvatarIndex] = useState(0);
+  // ── Live Firebase Database State ──────────────────────────────────────────
+  const [dbFaculty, setDbFaculty] = useState(null);
+
+  // Faculty-Controlled Editable Details (synced with Firebase)
+  const [officeHours, setOfficeHours] = useState('');
+  const [intercomExt, setIntercomExt] = useState('');
 
   // App Preferences
   const [appNotifications, setAppNotificationsState] = useState(true);
   const [directoryVisibility, setDirectoryVisibilityState] = useState(true);
 
-  // Modals for editing faculty-controlled details
+  // Modals for editing details
   const [editHoursModalVisible, setEditHoursModalVisible] = useState(false);
   const [tempHoursInput, setTempHoursInput] = useState('');
 
@@ -59,55 +58,108 @@ export default function FacultyProfileView({ onBack }) {
   const [tempIntercomInput, setTempIntercomInput] = useState('');
 
   const [editPhotoModalVisible, setEditPhotoModalVisible] = useState(false);
+  const [tempPhotoInput, setTempPhotoInput] = useState('');
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
-  // Load persisted faculty details on mount
+  // ── Sync with Firebase Realtime Database ─────────────────────────────────
   useEffect(() => {
-    async function loadFacultyPreferences() {
-      try {
-        const storedHours = await safeStorage.getItem(STORAGE_KEY_OFFICE_HOURS);
-        if (storedHours) setOfficeHours(storedHours);
+    if (!user?.email) return;
+    const normalizedEmail = (user.email || '').toLowerCase().trim();
 
-        const storedIntercom = await safeStorage.getItem(STORAGE_KEY_INTERCOM);
-        if (storedIntercom) setIntercomExt(storedIntercom);
-
-        const storedNotifs = await safeStorage.getItem(STORAGE_KEY_NOTIFS);
-        if (storedNotifs !== null) setAppNotificationsState(JSON.parse(storedNotifs));
-
-        const storedVis = await safeStorage.getItem(STORAGE_KEY_VISIBILITY);
-        if (storedVis !== null) setDirectoryVisibilityState(JSON.parse(storedVis));
-
-        const storedPhoto = await safeStorage.getItem(STORAGE_KEY_PHOTO_IDX);
-        if (storedPhoto !== null) setAvatarIndex(Number(storedPhoto));
-      } catch (_) {
-        // Fall back quietly to defaults without emitting yellowbox warnings
-      }
+    // 1. Listen to users/{user.uid}
+    let userUnsub = null;
+    if (user?.uid) {
+      const userRef = ref(db, `users/${user.uid}`);
+      userUnsub = onValue(userRef, (snap) => {
+        if (snap.exists()) {
+          const val = snap.val() || {};
+          setDbFaculty((prev) => ({ ...prev, ...val }));
+          if (val.officeHours) setOfficeHours(val.officeHours);
+          if (val.intercom) setIntercomExt(val.intercom);
+        }
+      });
     }
-    loadFacultyPreferences();
-  }, []);
+
+    // 2. Listen to faculty/ directory in database
+    const facultyRef = ref(db, 'faculty');
+    const facUnsub = onValue(facultyRef, (snap) => {
+      if (snap.exists()) {
+        const allFac = snap.val() || {};
+        const match = Object.entries(allFac).find(
+          ([key, f]) =>
+            key === profile?.directoryUid ||
+            key === profile?.facultyUid ||
+            (f?.email || '').toLowerCase().trim() === normalizedEmail ||
+            f?.authUid === user?.uid
+        );
+        if (match) {
+          const [facKey, fData] = match;
+          setDbFaculty((prev) => ({
+            ...prev,
+            ...fData,
+            facKey,
+          }));
+          if (fData.officeHours) setOfficeHours(fData.officeHours);
+          if (fData.intercom) setIntercomExt(fData.intercom);
+        }
+      }
+    });
+
+    return () => {
+      if (typeof userUnsub === 'function') userUnsub();
+      if (typeof facUnsub === 'function') facUnsub();
+    };
+  }, [user?.uid, user?.email]);
 
   // Preference setters
-  const setAppNotifications = (val) => {
+  const setAppNotifications = async (val) => {
     setAppNotificationsState(val);
     safeStorage.setItem(STORAGE_KEY_NOTIFS, JSON.stringify(val));
+    if (user?.uid) {
+      try {
+        await update(ref(db, `users/${user.uid}/preferences`), { notifications: val });
+      } catch (_) {}
+    }
   };
 
-  const setDirectoryVisibility = (val) => {
+  const setDirectoryVisibility = async (val) => {
     setDirectoryVisibilityState(val);
     safeStorage.setItem(STORAGE_KEY_VISIBILITY, JSON.stringify(val));
+    if (user?.uid) {
+      try {
+        await update(ref(db, `users/${user.uid}/preferences`), { directoryVisibility: val });
+        const facKey = dbFaculty?.facKey || profile?.directoryUid;
+        if (facKey) {
+          await update(ref(db, `faculty/${facKey}`), { directoryVisibility: val });
+        }
+      } catch (_) {}
+    }
   };
 
-  // Save Office Hours
-  const handleSaveOfficeHours = () => {
+  // Save Office Hours to Firebase RTDB
+  const handleSaveOfficeHours = async () => {
     if (!tempHoursInput.trim()) return;
     const clean = tempHoursInput.trim();
     setOfficeHours(clean);
     safeStorage.setItem(STORAGE_KEY_OFFICE_HOURS, clean);
     setEditHoursModalVisible(false);
+
+    try {
+      const updates = { officeHours: clean, updatedAt: Date.now() };
+      if (user?.uid) {
+        await update(ref(db, `users/${user.uid}`), updates);
+      }
+      const facKey = dbFaculty?.facKey || profile?.directoryUid || profile?.facultyUid;
+      if (facKey) {
+        await update(ref(db, `faculty/${facKey}`), updates);
+      }
+    } catch (err) {
+      console.warn('Firebase faculty office hours sync note:', err.message);
+    }
   };
 
-  // Save Intercom Extension
-  const handleSaveIntercom = () => {
+  // Save Intercom Extension to Firebase RTDB
+  const handleSaveIntercom = async () => {
     if (!tempIntercomInput.trim()) return;
     let clean = tempIntercomInput.trim();
     if (!clean.toLowerCase().startsWith('ext')) {
@@ -116,13 +168,38 @@ export default function FacultyProfileView({ onBack }) {
     setIntercomExt(clean);
     safeStorage.setItem(STORAGE_KEY_INTERCOM, clean);
     setEditIntercomModalVisible(false);
+
+    try {
+      const updates = { intercom: clean, updatedAt: Date.now() };
+      if (user?.uid) {
+        await update(ref(db, `users/${user.uid}`), updates);
+      }
+      const facKey = dbFaculty?.facKey || profile?.directoryUid || profile?.facultyUid;
+      if (facKey) {
+        await update(ref(db, `faculty/${facKey}`), updates);
+      }
+    } catch (err) {
+      console.warn('Firebase faculty intercom sync note:', err.message);
+    }
   };
 
-  // Save Photo Choice
-  const handleSelectAvatar = (idx) => {
-    setAvatarIndex(idx);
-    safeStorage.setItem(STORAGE_KEY_PHOTO_IDX, String(idx));
+  // Save Photo URL to Firebase RTDB
+  const handleSavePhotoUrl = async (url) => {
+    const clean = (url || '').trim();
     setEditPhotoModalVisible(false);
+
+    try {
+      const updates = { photoURL: clean || null, photoUrl: clean || null, updatedAt: Date.now() };
+      if (user?.uid) {
+        await update(ref(db, `users/${user.uid}`), updates);
+      }
+      const facKey = dbFaculty?.facKey || profile?.directoryUid || profile?.facultyUid;
+      if (facKey) {
+        await update(ref(db, `faculty/${facKey}`), updates);
+      }
+    } catch (err) {
+      console.warn('Firebase faculty photo sync note:', err.message);
+    }
   };
 
   // Lock Handler for Core Institutional Data
@@ -135,11 +212,31 @@ export default function FacultyProfileView({ onBack }) {
 
   const liveStatus = selectedStatusId;
   const facultyName =
+    dbFaculty?.name ||
+    dbFaculty?.displayName ||
     user?.displayName ||
     user?.name ||
     (user?.email ? user.email.split('@')[0].split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ') : 'Faculty Member');
-  const facultyDept = department ? `Associate Professor • ${department} Dept` : 'Associate Professor • SFIT';
-  const facultyEmail = user?.email || 'faculty@sfit.ac.in';
+
+  const currentDept = (dbFaculty?.department || department || 'CMPN').toUpperCase();
+  const designation = dbFaculty?.designation || (role === 'hod' ? 'Professor & HOD' : 'Associate Professor');
+  const facultyDeptText = `${designation} • ${currentDept} Dept`;
+  const facultyEmail = dbFaculty?.email || user?.email || 'faculty@sfit.ac.in';
+  const facultyIdText = dbFaculty?.facultyId || dbFaculty?.uid || `SFIT-${currentDept}-FAC`;
+  const cabinText = dbFaculty?.cabin
+    ? `${dbFaculty.cabin}${dbFaculty.floor ? ` • ${dbFaculty.floor}` : ''}${dbFaculty.wing ? ` (${dbFaculty.wing})` : ''}`
+    : 'Hall No. 301 • Table 1';
+  const displayOfficeHours = dbFaculty?.officeHours || officeHours || '09:00 AM - 05:00 PM';
+  const displayIntercom = dbFaculty?.intercom || intercomExt || 'Ext. N/A';
+  const currentPhoto = dbFaculty?.photoURL || dbFaculty?.photoUrl || user?.photoURL || null;
+
+  const initials =
+    facultyName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join('') || 'FC';
 
   const handleLogoutPress = () => {
     setLogoutModalVisible(true);
@@ -174,14 +271,23 @@ export default function FacultyProfileView({ onBack }) {
             {/* Avatar with Camera/Edit Badge + Live Green Dot */}
             <TouchableOpacity
               style={styles.avatarWrapper}
-              onPress={() => setEditPhotoModalVisible(true)}
+              onPress={() => {
+                setTempPhotoInput(currentPhoto || '');
+                setEditPhotoModalVisible(true);
+              }}
               activeOpacity={0.85}
             >
-              <Image
-                source={AVATAR_PRESETS[avatarIndex]?.source || AVATAR_PRESETS[0].source}
-                style={styles.avatarImg}
-                resizeMode="cover"
-              />
+              {currentPhoto ? (
+                <Image
+                  source={{ uri: currentPhoto }}
+                  style={styles.avatarImg}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.initialsAvatarBox}>
+                  <Text style={styles.initialsAvatarText}>{initials}</Text>
+                </View>
+              )}
               <View style={styles.activeDotBadge}>
                 <View style={styles.activeDotInner} />
               </View>
@@ -216,7 +322,7 @@ export default function FacultyProfileView({ onBack }) {
                 activeOpacity={0.7}
                 style={styles.lockedRowItem}
               >
-                <Text style={styles.facultyDeptText}>{facultyDept}</Text>
+                <Text style={styles.facultyDeptText}>{facultyDeptText}</Text>
                 <FontAwesome5 name="lock" size={9} color="#94A3B8" style={{ marginLeft: 5 }} />
               </TouchableOpacity>
 
@@ -227,7 +333,7 @@ export default function FacultyProfileView({ onBack }) {
                 activeOpacity={0.7}
               >
                 <FontAwesome5 name="map-marker-alt" size={11} color="#4326B6" style={{ marginRight: 5 }} />
-                <Text style={styles.locationLinkText}>Hall No. 301 • Table 1</Text>
+                <Text style={styles.locationLinkText}>{cabinText}</Text>
                 <FontAwesome5 name="lock" size={9} color="#818CF8" style={{ marginLeft: 5 }} />
               </TouchableOpacity>
 
@@ -284,8 +390,8 @@ export default function FacultyProfileView({ onBack }) {
           {/* 3 Stats Columns */}
           <View style={styles.statsRow}>
             <View style={styles.statCol}>
-              <Text style={styles.statNumberBlue}>38h</Text>
-              <Text style={styles.statLabel}>Active This Week</Text>
+              <Text style={styles.statNumberBlue}>{logs.length > 0 ? `${logs.length}` : '0'}</Text>
+              <Text style={styles.statLabel}>Today's Events</Text>
             </View>
 
             <View style={styles.statColDivider} />
@@ -298,8 +404,8 @@ export default function FacultyProfileView({ onBack }) {
             <View style={styles.statColDivider} />
 
             <View style={styles.statCol}>
-              <Text style={styles.statNumberGreen}>100%</Text>
-              <Text style={styles.statLabel}>Sync Accuracy</Text>
+              <Text style={styles.statNumberGreen}>Active</Text>
+              <Text style={styles.statLabel}>Firebase Live</Text>
             </View>
           </View>
         </View>
@@ -307,7 +413,7 @@ export default function FacultyProfileView({ onBack }) {
         {/* ── CABIN & ACCOUNT DETAILS ─────────────────────────────────── */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionHeading}>CABIN & ACCOUNT DETAILS</Text>
-          <Text style={styles.hodNoticeText}>Details are set by your HOD</Text>
+          <Text style={styles.hodNoticeText}>Institutional data set by HOD</Text>
         </View>
         <View style={styles.groupedCard}>
           {/* Cabin Assignment (Locked) */}
@@ -320,7 +426,7 @@ export default function FacultyProfileView({ onBack }) {
               <FontAwesome5 name="door-open" size={14} color="#2563EB" />
             </View>
             <Text style={styles.menuLabel}>Cabin Assignment</Text>
-            <Text style={styles.menuValueText}>Hall No. 301, Table 1</Text>
+            <Text style={styles.menuValueText}>{cabinText}</Text>
             <FontAwesome5 name="lock" size={11} color="#94A3B8" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
 
@@ -330,7 +436,7 @@ export default function FacultyProfileView({ onBack }) {
           <TouchableOpacity
             style={styles.menuRow}
             onPress={() => {
-              setTempHoursInput(officeHours);
+              setTempHoursInput(displayOfficeHours);
               setEditHoursModalVisible(true);
             }}
             activeOpacity={0.7}
@@ -339,7 +445,7 @@ export default function FacultyProfileView({ onBack }) {
               <FontAwesome5 name="clock" size={14} color="#2563EB" />
             </View>
             <Text style={styles.menuLabel}>Office Hours</Text>
-            <Text style={styles.menuValueEditableText}>{officeHours}</Text>
+            <Text style={styles.menuValueEditableText}>{displayOfficeHours}</Text>
             <FontAwesome5 name="pen" size={10} color="#4326B6" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
 
@@ -349,7 +455,7 @@ export default function FacultyProfileView({ onBack }) {
           <TouchableOpacity
             style={styles.menuRow}
             onPress={() => {
-              setTempIntercomInput(intercomExt);
+              setTempIntercomInput(displayIntercom);
               setEditIntercomModalVisible(true);
             }}
             activeOpacity={0.7}
@@ -359,7 +465,7 @@ export default function FacultyProfileView({ onBack }) {
             </View>
             <Text style={styles.menuLabel}>Intercom Ext.</Text>
             <View style={styles.extBadge}>
-              <Text style={styles.extBadgeText}>{intercomExt}</Text>
+              <Text style={styles.extBadgeText}>{displayIntercom}</Text>
             </View>
             <FontAwesome5 name="pen" size={10} color="#4326B6" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
@@ -376,7 +482,7 @@ export default function FacultyProfileView({ onBack }) {
               <FontAwesome5 name="id-card" size={13} color="#4326B6" />
             </View>
             <Text style={styles.menuLabel}>Faculty ID</Text>
-            <Text style={styles.facultyIdText}>SFIT-ECS-089</Text>
+            <Text style={styles.facultyIdText}>{facultyIdText}</Text>
             <FontAwesome5 name="lock" size={11} color="#94A3B8" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
@@ -578,7 +684,7 @@ export default function FacultyProfileView({ onBack }) {
         </View>
       </Modal>
 
-      {/* ── MODAL: SELECT PROFILE PHOTO ──────────────────────────────── */}
+      {/* ── MODAL: UPDATE PROFILE PHOTO ──────────────────────────────── */}
       <Modal
         visible={editPhotoModalVisible}
         transparent
@@ -588,45 +694,40 @@ export default function FacultyProfileView({ onBack }) {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalDialog}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Change Profile Photo</Text>
+              <Text style={styles.modalTitle}>Update Profile Photo</Text>
               <TouchableOpacity onPress={() => setEditPhotoModalVisible(false)}>
                 <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSubtitle}>
-              Select your institution-approved avatar portrait:
+              Enter a direct image link (PNG, JPG, WebP) to display as your photo:
             </Text>
 
-            <View style={styles.avatarSelectionRow}>
-              {AVATAR_PRESETS.map((preset) => {
-                const isSelected = avatarIndex === preset.id;
-                return (
-                  <TouchableOpacity
-                    key={preset.id}
-                    style={[styles.avatarOption, isSelected && styles.avatarOptionSelected]}
-                    onPress={() => handleSelectAvatar(preset.id)}
-                    activeOpacity={0.8}
-                  >
-                    <Image source={preset.source} style={styles.avatarOptionImg} />
-                    <Text style={[styles.avatarOptionLabel, isSelected && styles.avatarOptionLabelSelected]}>
-                      {preset.label}
-                    </Text>
-                    {isSelected ? (
-                      <View style={styles.avatarOptionCheck}>
-                        <FontAwesome5 name="check" size={10} color="#FFFFFF" />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <TextInput
+              style={styles.modalInput}
+              value={tempPhotoInput}
+              onChangeText={setTempPhotoInput}
+              placeholder="https://example.com/avatar.jpg"
+              placeholderTextColor="#94A3B8"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
 
-            <TouchableOpacity
-              style={styles.modalCancelBtnFull}
-              onPress={() => setEditPhotoModalVisible(false)}
-            >
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => handleSavePhotoUrl('')}
+              >
+                <Text style={[styles.modalCancelText, { color: '#DC2626' }]}>Clear Photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSaveBtn}
+                onPress={() => handleSavePhotoUrl(tempPhotoInput)}
+              >
+                <Text style={styles.modalSaveText}>Save Photo</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -730,6 +831,19 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 16,
     backgroundColor: '#EDE9FE',
+  },
+  initialsAvatarBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialsAvatarText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#4326B6',
   },
   activeDotBadge: {
     position: 'absolute',

@@ -306,9 +306,36 @@ export function subscribeToStudents(department, callback) {
       }
     });
 
-    // 3. Filter strictly by HOD's department if specified
+    // 3. Deduplicate by student email so multiple sessions never create duplicate rows
+    const deduplicatedByEmail = new Map();
+    studentMap.forEach((s) => {
+      const emailKey = (s.email || '').toLowerCase().trim();
+      if (!emailKey) {
+        deduplicatedByEmail.set(s.uid, s);
+        return;
+      }
+      if (!deduplicatedByEmail.has(emailKey)) {
+        deduplicatedByEmail.set(emailKey, s);
+      } else {
+        const prev = deduplicatedByEmail.get(emailKey);
+        deduplicatedByEmail.set(emailKey, {
+          ...prev,
+          ...s,
+          name: s.name && s.name !== 'Student' ? s.name : prev.name,
+          rollNumber: s.rollNumber || prev.rollNumber || '',
+          rollNo: s.rollNo || prev.rollNo || '',
+          pid: s.pid || prev.pid || '',
+          photoURL: s.photoURL || prev.photoURL || null,
+          lastSeen: Math.max(s.lastSeen || 0, prev.lastSeen || 0),
+          is_active: prev.is_active && s.is_active,
+          revoked: prev.revoked || s.revoked,
+        });
+      }
+    });
+
+    // 4. Filter strictly by HOD's department if specified
     const targetDept = (department || '').toUpperCase();
-    const allStudents = Array.from(studentMap.values());
+    const allStudents = Array.from(deduplicatedByEmail.values());
     const filtered = allStudents.filter((s) => {
       if (!targetDept || targetDept === 'ALL') return true;
       return s.department === targetDept || s.department.includes(targetDept);

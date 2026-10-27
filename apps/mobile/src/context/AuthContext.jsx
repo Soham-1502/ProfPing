@@ -114,10 +114,11 @@ export function AuthProvider({ children }) {
           department: newDept,
           hasDeclaredDept: true,
         });
-        await set(ref(db, `studentAccess/${user.uid}`), {
+        await update(ref(db, `studentAccess/${user.uid}`), {
           name: user.displayName || user.name || 'Student',
           email: user.email,
           department: newDept,
+          hasDeclaredDept: true,
           lastSeen: Date.now(),
           revoked: false,
         });
@@ -374,17 +375,67 @@ export function AuthProvider({ children }) {
               ? ROLES.PRINCIPAL
               : ROLES.STUDENT;
 
+          const savedDept = uData.department || null;
+          const hasDeclared = Boolean(uData.hasDeclaredDept || savedDept);
+
+          // If authUid is provided and differs, migrate / link session
+          if (authUid && authUid !== uUid) {
+            try {
+              await update(ref(db, `users/${authUid}`), {
+                ...uData,
+                uid: authUid,
+                lastLoginAt: Date.now(),
+              });
+            } catch (_) {}
+          }
+
           return {
             uid: authUid || uUid,
             email: normalized,
             displayName: uData.name || uData.displayName || fallbackName,
+            name: uData.name || uData.displayName || fallbackName,
             role: resolvedRole,
-            department: uData.department || inferredDept,
+            department: savedDept,
+            hasDeclaredDept: hasDeclared,
+            rollNumber: uData.rollNumber || uData.rollNo || '',
+            rollNo: uData.rollNumber || uData.rollNo || '',
+            pid: uData.pid || '',
+            photoURL: uData.photoURL || null,
           };
         }
       }
     } catch (err) {
       console.warn('Realtime DB users table lookup note:', err.message);
+    }
+
+    // 4b. Query /studentAccess directory in database by email for returning students
+    try {
+      const accessSnap = await get(ref(db, 'studentAccess'));
+      if (accessSnap.exists()) {
+        const allAccess = accessSnap.val() || {};
+        const matchedAccess = Object.entries(allAccess).find(
+          ([_, acc]) => (acc.email || '').toLowerCase() === normalized
+        );
+        if (matchedAccess) {
+          const [accUid, accData] = matchedAccess;
+          const savedDept = accData.department || null;
+          return {
+            uid: authUid || accUid,
+            email: normalized,
+            displayName: accData.name || accData.displayName || fallbackName,
+            name: accData.name || accData.displayName || fallbackName,
+            role: ROLES.STUDENT,
+            department: savedDept,
+            hasDeclaredDept: Boolean(accData.hasDeclaredDept || savedDept),
+            rollNumber: accData.rollNumber || accData.rollNo || '',
+            rollNo: accData.rollNumber || accData.rollNo || '',
+            pid: accData.pid || '',
+            photoURL: accData.photoURL || null,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Realtime DB studentAccess lookup note:', err.message);
     }
 
     // 5. Check /faculty list in database (managed by Department HOD)
@@ -417,8 +468,10 @@ export function AuthProvider({ children }) {
             directoryUid: facKey,
             email: normalized,
             displayName: match.name || fallbackName,
+            name: match.name || fallbackName,
             role: fRole === 'hod' ? ROLES.HOD : ROLES.FACULTY,
             department: match.department || inferredDept,
+            photoURL: match.photoURL || match.photoUrl || null,
           };
         }
       }
@@ -445,12 +498,12 @@ export function AuthProvider({ children }) {
     // RULE (2): Auto-assign the student role only to verified @student.sfit.ac.in accounts.
     // Non-pre-approved @sfit.ac.in accounts see "Access restricted".
     if (normalized.endsWith('@student.sfit.ac.in')) {
+      const stableUid = authUid || `student-${sanitizeEmail(normalized)}`;
       if (authUid) {
         try {
           await update(ref(db, `users/${authUid}`), {
             uid: authUid,
             email: normalized,
-            displayName: fallbackName,
             role: ROLES.STUDENT,
             is_active: true,
             lastLoginAt: Date.now(),
@@ -459,9 +512,10 @@ export function AuthProvider({ children }) {
       }
 
       return {
-        uid: authUid || `student-${Date.now()}`,
+        uid: stableUid,
         email: normalized,
         displayName: fallbackName,
+        name: fallbackName,
         role: ROLES.STUDENT,
         department: null,
         hasDeclaredDept: false,
