@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../src/hooks/useAuth';
 import { INSTITUTION } from '@profping/shared';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 const DEMO_PRESETS = [
   { label: 'Principal Portal', email: 'principal@sfit.ac.in', role: 'principal' },
@@ -19,8 +19,19 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const { login, loginWithGoogleWeb } = useAuth();
+  const { user, role, loading, login, loginWithGoogleWeb } = useAuth();
   const router = useRouter();
+
+  // If already logged in, redirect directly to portal without waiting
+  useEffect(() => {
+    if (!loading && user && role) {
+      if (role === 'principal') {
+        router.replace('/principal');
+      } else if (role === 'hod') {
+        router.replace('/hod');
+      }
+    }
+  }, [user, role, loading, router]);
 
   const handleGoogleSignIn = async () => {
     setError('');
@@ -28,7 +39,7 @@ export default function LoginPage() {
     try {
       const profile = await loginWithGoogleWeb('hod');
       if (profile) {
-        router.push('/hod');
+        router.replace('/hod');
       }
     } catch (err) {
       console.error('Google HOD login error:', err);
@@ -56,12 +67,13 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const result = await login(trimmedEmail, password);
-      if (result.role === 'principal') {
-        router.push('/principal');
-      } else if (result.role === 'hod') {
-        router.push('/hod');
+      const targetRole = result?.role || role;
+      if (targetRole === 'principal') {
+        router.replace('/principal');
+      } else if (targetRole === 'hod') {
+        router.replace('/hod');
       } else {
-        router.push('/');
+        router.replace('/');
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -101,6 +113,41 @@ export default function LoginPage() {
         padding: '36px',
         boxShadow: '0 12px 28px -6px rgba(73, 47, 177, 0.08), 0 4px 10px -2px rgba(26, 25, 31, 0.04)',
       }}>
+        {/* Top Bar with Back Button */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '20px' }}>
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: '#F4F2FA',
+              border: '1px solid #C8C5D3',
+              color: '#4B4757',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: '9999px',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#190D4A';
+              e.currentTarget.style.backgroundColor = '#E0D8FD';
+              e.currentTarget.style.borderColor = '#492FB1';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#4B4757';
+              e.currentTarget.style.backgroundColor = '#F4F2FA';
+              e.currentTarget.style.borderColor = '#C8C5D3';
+            }}
+          >
+            <ArrowLeft size={14} />
+            <span>Back to Home</span>
+          </button>
+        </div>
+
         {/* Brand Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div style={{

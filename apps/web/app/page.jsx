@@ -141,8 +141,19 @@ const SIMULATOR_STATES = [
 ];
 
 export default function LandingPage() {
-  const { user, role, department, logout } = useAuth();
+  const { user, role, department, logout, loading } = useAuth();
   const router = useRouter();
+
+  // Auto-redirect authenticated administrators straight to their respective portals
+  useEffect(() => {
+    if (!loading && user && role) {
+      if (role === 'principal') {
+        router.replace('/principal');
+      } else if (role === 'hod') {
+        router.replace('/hod');
+      }
+    }
+  }, [user, role, loading, router]);
 
   // Mobile Showcase Carousel State
   const [activeSlide, setActiveSlide] = useState(0);
@@ -165,6 +176,36 @@ export default function LandingPage() {
 
   const currentSimState = SIMULATOR_STATES.find((s) => s.key === simStateKey) || SIMULATOR_STATES[0];
   const activeSlideData = MOBILE_SLIDES[activeSlide];
+
+  // Prevent flash of landing page if authenticated as principal or hod
+  if (!loading && user && (role === 'principal' || role === 'hod')) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#FAF8FE',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#190D4A',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}>
+        <div style={{
+          width: '36px',
+          height: '36px',
+          border: '3px solid #E0D8FD',
+          borderTopColor: '#492FB1',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+          marginBottom: '16px',
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <p style={{ fontSize: '14px', fontWeight: 700, color: '#492FB1' }}>
+          Opening {role === 'principal' ? 'Principal' : 'HOD'} Command Portal...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{
