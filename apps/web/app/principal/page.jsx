@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import RoleGuard from '../../src/components/RoleGuard';
+import SignOutModal from '../../src/components/SignOutModal';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { getScopedFaculty, enrichWithDeskHours } from '../../src/lib/dashboardService';
@@ -16,6 +17,7 @@ import { LogOut, LayoutDashboard, UserCheck, ShieldCheck, CheckCircle2, Clock, S
 
 export default function PrincipalDashboardPage() {
   const { user, logout } = useAuth();
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
   const router = useRouter();
 
   // Primary portal views: 'overview' | 'roles'
@@ -81,9 +83,9 @@ export default function PrincipalDashboardPage() {
     };
   }, [displayFaculty]);
 
-  const handleLogout = async () => {
+  const handleConfirmLogout = async () => {
     await logout();
-    router.push('/login');
+    router.replace('/login');
   };
 
   return (
@@ -165,7 +167,8 @@ export default function PrincipalDashboardPage() {
             </div>
 
             <button
-              onClick={handleLogout}
+              type="button"
+              onClick={() => setShowSignOutModal(true)}
               style={{
                 backgroundColor: '#FFFFFF',
                 border: '1px solid #BA1A1A',
@@ -463,6 +466,14 @@ export default function PrincipalDashboardPage() {
             </div>
           </footer>
         </main>
+
+        {/* Confirmation Sign Out Modal */}
+        <SignOutModal
+          isOpen={showSignOutModal}
+          onClose={() => setShowSignOutModal(false)}
+          onConfirm={handleConfirmLogout}
+          portalName="Principal Executive Portal"
+        />
       </div>
     </RoleGuard>
   );

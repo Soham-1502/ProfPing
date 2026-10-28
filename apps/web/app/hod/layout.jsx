@@ -1,14 +1,16 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import RoleGuard from '../../src/components/RoleGuard';
+import SignOutModal from '../../src/components/SignOutModal';
 import { useAuth } from '../../src/hooks/useAuth';
 import { Activity, Users, ShieldCheck, Settings, LogOut } from 'lucide-react';
 
 export default function HodLayout({ children }) {
   const { user, department, logout } = useAuth();
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -38,9 +40,9 @@ export default function HodLayout({ children }) {
     },
   ];
 
-  const handleLogout = async () => {
+  const handleConfirmLogout = async () => {
     await logout();
-    router.push('/login');
+    router.replace('/login');
   };
 
   return (
@@ -128,7 +130,8 @@ export default function HodLayout({ children }) {
               </div>
 
               <button
-                onClick={handleLogout}
+                type="button"
+                onClick={() => setShowSignOutModal(true)}
                 style={{
                   backgroundColor: '#FFFFFF',
                   border: '1px solid #BA1A1A',
@@ -198,6 +201,14 @@ export default function HodLayout({ children }) {
         <main style={{ maxWidth: '1360px', margin: '28px auto', padding: '0 28px' }}>
           {children}
         </main>
+
+        {/* Confirmation Sign Out Modal */}
+        <SignOutModal
+          isOpen={showSignOutModal}
+          onClose={() => setShowSignOutModal(false)}
+          onConfirm={handleConfirmLogout}
+          portalName={`HOD Portal (Dept. of ${effectiveDept})`}
+        />
       </div>
     </RoleGuard>
   );
