@@ -286,15 +286,22 @@ export function AuthProvider({ children }) {
       };
     }
 
-    // Default student
-    return {
-      uid: authUid || `student-${Date.now()}`,
-      email: normalized,
-      displayName: normalized.split('@')[0],
-      name: normalized.split('@')[0],
-      role: ROLES.STUDENT,
-      department: 'CMPN',
-    };
+    // 6. Student Domain Enforcement
+    if (normalized.endsWith('@student.sfit.ac.in')) {
+      return {
+        uid: authUid || `student-${Date.now()}`,
+        email: normalized,
+        displayName: normalized.split('@')[0],
+        name: normalized.split('@')[0],
+        role: ROLES.STUDENT,
+        department: 'CMPN',
+      };
+    }
+
+    // 7. Non-preapproved staff email: STRICT REJECTION
+    throw new Error(
+      `Access Denied: "${normalized}" is not registered in the departmental faculty directory. Please contact your department HOD to add your institutional account.`
+    );
   };
 
   useEffect(() => {

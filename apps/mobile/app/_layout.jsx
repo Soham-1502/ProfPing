@@ -13,19 +13,36 @@ function NavigationRouter() {
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
+    const currentSegment = segments[0];
+    const inAuthGroup = currentSegment === '(auth)';
 
     if (!user) {
       if (!inAuthGroup) {
         router.replace('/(auth)/onboarding');
       }
-    } else {
-      if (inAuthGroup || segments[0] === undefined) {
-        if (role === 'faculty' || role === 'hod') {
-          router.replace('/(faculty)');
-        } else {
-          router.replace('/(student)');
-        }
+      return;
+    }
+
+    const isStaff = role === 'faculty' || role === 'hod' || role === 'principal';
+
+    // 1. Cross-portal enforcement: Prevent students from entering faculty portal
+    if (!isStaff && (currentSegment === '(faculty)' || currentSegment === '(hod)')) {
+      router.replace('/(student)');
+      return;
+    }
+
+    // 2. Cross-portal enforcement: Prevent faculty from entering student portal
+    if (isStaff && currentSegment === '(student)') {
+      router.replace('/(faculty)');
+      return;
+    }
+
+    // 3. Initial login or root landing auto-redirect
+    if (inAuthGroup || currentSegment === undefined || currentSegment === 'index') {
+      if (isStaff) {
+        router.replace('/(faculty)');
+      } else {
+        router.replace('/(student)');
       }
     }
   }, [user, role, loading, segments, router]);

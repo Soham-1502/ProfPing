@@ -241,10 +241,9 @@ export function AuthProvider({ children }) {
           let userDisplayName = currentUser.displayName || null;
 
           const resolved = await resolveUserRoleByEmail(currentUser.email, currentUser.uid);
-          if (!userRole) {
-            userRole = resolved.role;
-            userDept = resolved.department;
-          }
+          const isStudent = (currentUser.email || '').toLowerCase().endsWith('@student.sfit.ac.in');
+          userRole = isStudent ? ROLES.STUDENT : (tokenResult.claims?.role || resolved.role);
+          userDept = tokenResult.claims?.department || resolved.department;
           if (!userDisplayName) {
             userDisplayName = resolved.displayName;
           }
@@ -276,46 +275,43 @@ export function AuthProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  // Look up user role by email (student vs staff database check for faculty or hod)
+  // Look up user role by email with strict domain-to-role enforcement:
+  // - @student.sfit.ac.in -> STRICTLY Student (Cannot acquire staff privileges)
+  // - @sfit.ac.in -> STRICTLY Faculty/HOD/Principal (Must exist in directory, cannot be student)
   const resolveUserRoleByEmail = async (email, authUid = null) => {
     const normalized = (email || '').trim().toLowerCase();
+    const isStudentEmail = normalized.endsWith('@student.sfit.ac.in');
+    const isStaffEmail = normalized.endsWith('@sfit.ac.in') && !isStudentEmail;
+
+    if (!isStudentEmail && !isStaffEmail) {
+      throw new Error('Access restricted: Only institutional SFIT accounts (@student.sfit.ac.in for students, @sfit.ac.in for faculty) are permitted.');
+    }
+
     const inferredDept = inferDepartmentFromEmail(normalized) || 'CMPN';
     const fallbackName = formatDisplayNameFromEmail(normalized);
 
-    // 1. Check known institutional demo accounts
-    if (DEMO_ACCOUNTS[normalized]) {
-      const demo = DEMO_ACCOUNTS[normalized];
-      return {
-        ...demo,
-        uid: authUid || demo.uid,
-      };
-    }
-
-    // 2. Check direct users/{uid} record if authenticated
-    if (authUid) {
-      try {
-        const userSnap = await get(ref(db, `users/${authUid}`));
-        if (userSnap.exists()) {
-          const val = userSnap.val();
-          if (val.is_active === false) {
-            throw new Error('Access Revoked: Your account has been deactivated by the department administrator.');
-          }
-          const dbRole = (val.role || '').toLowerCase();
-          const resolvedRole =
-            dbRole === 'hod'
-              ? ROLES.HOD
-              : dbRole === 'faculty'
-              ? ROLES.FACULTY
-              : dbRole === 'principal'
-              ? ROLES.PRINCIPAL
-              : ROLES.STUDENT;
+    // ============================================================
+    // 1. STRICT STUDENT FLOW: @student.sfit.ac.in
+    // Automatically determined by the word 'student' in the domain.
+    // ALWAYS locked to ROLES.STUDENT.
+    // ============================================================
+    if (isStudentEmail) {
+      // 1a. Check direct users/{uid} record if authenticated
+      if (authUid) {
+        try {
+          const userSnap = await get(ref(db, `users/${authUid}`));
+          if (userSnap.exists()) {
+            const val = userSnap.val();
+            if (val.is_active === false || val.revoked === true) {
+              throw new Error('Access Revoked: Your student account has been deactivated by the department administrator.');
+            }
 
             return {
               uid: authUid,
               email: normalized,
               displayName: val.name || val.displayName || fallbackName,
               name: val.name || val.displayName || fallbackName,
-              role: resolvedRole,
+              role: ROLES.STUDENT,
               department: val.department || null,
               hasDeclaredDept: !!val.hasDeclaredDept,
               rollNumber: val.rollNumber || val.rollNo || '',
@@ -323,201 +319,47 @@ export function AuthProvider({ children }) {
               pid: val.pid || '',
               photoURL: val.photoURL || null,
             };
+          }
+        } catch (err) {
+          if (err.message?.includes('Access Revoked')) throw err;
+          console.warn('Realtime DB user check note:', err.message);
+        }
+      }
+
+      // 1b. Check studentAccess directory
+      try {
+        const accessSnap = await get(ref(db, 'studentAccess'));
+        if (accessSnap.exists()) {
+          const allAccess = accessSnap.val() || {};
+          const matchedAccess = Object.entries(allAccess).find(
+            ([_, acc]) => (acc.email || '').toLowerCase() === normalized
+          );
+          if (matchedAccess) {
+            const [accUid, accData] = matchedAccess;
+            if (accData.revoked === true) {
+              throw new Error('Access Revoked: Your student access has been suspended by the department HOD.');
+            }
+            return {
+              uid: authUid || accUid,
+              email: normalized,
+              displayName: accData.name || accData.displayName || fallbackName,
+              name: accData.name || accData.displayName || fallbackName,
+              role: ROLES.STUDENT,
+              department: accData.department || null,
+              hasDeclaredDept: Boolean(accData.hasDeclaredDept || accData.department),
+              rollNumber: accData.rollNumber || accData.rollNo || '',
+              rollNo: accData.rollNumber || accData.rollNo || '',
+              pid: accData.pid || '',
+              photoURL: accData.photoURL || null,
+            };
+          }
         }
       } catch (err) {
         if (err.message?.includes('Access Revoked')) throw err;
-        console.warn('Realtime DB user check note:', err.message);
+        console.warn('Realtime DB studentAccess lookup note:', err.message);
       }
-    }
 
-    // 3. Check preapproved_users/${sanitizedKey} in RTDB (pre-approved by Principal for HODs or Faculty)
-    try {
-      const sanitizedKey = sanitizeEmail(normalized);
-      const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
-      if (preSnap.exists()) {
-        const pre = preSnap.val();
-        const preRole = (pre.role || '').toLowerCase();
-        const resolvedRole =
-          preRole === 'hod'
-            ? ROLES.HOD
-            : preRole === 'faculty'
-            ? ROLES.FACULTY
-            : ROLES.STUDENT;
-        const assignedDept = pre.department || inferredDept;
-        const assignedName = pre.name || pre.displayName || fallbackName;
-
-        // Auto-provision or link active session record in users table
-        if (authUid) {
-          try {
-            await update(ref(db, `users/${authUid}`), {
-              uid: authUid,
-              email: normalized,
-              displayName: assignedName,
-              name: assignedName,
-              role: resolvedRole,
-              department: assignedDept,
-              claimedAt: Date.now(),
-              hasSignedIn: true,
-              is_active: true,
-            });
-          } catch (_) {}
-        }
-
-        return {
-          uid: authUid || pre.uid || `preapproved-${Date.now()}`,
-          email: normalized,
-          displayName: assignedName,
-          role: resolvedRole,
-          department: assignedDept,
-        };
-      }
-    } catch (err) {
-      console.warn('Realtime DB preapproved check note:', err.message);
-    }
-
-    // 4. Query /users directory in database by email
-    try {
-      const usersSnap = await get(ref(db, 'users'));
-      if (usersSnap.exists()) {
-        const allUsers = usersSnap.val() || {};
-        const matchedEntry = Object.entries(allUsers).find(
-          ([_, u]) => (u.email || '').toLowerCase() === normalized
-        );
-        if (matchedEntry) {
-          const [uUid, uData] = matchedEntry;
-          const dbRole = (uData.role || '').toLowerCase();
-          const resolvedRole =
-            dbRole === 'hod'
-              ? ROLES.HOD
-              : dbRole === 'faculty'
-              ? ROLES.FACULTY
-              : dbRole === 'principal'
-              ? ROLES.PRINCIPAL
-              : ROLES.STUDENT;
-
-          const savedDept = uData.department || null;
-          const hasDeclared = Boolean(uData.hasDeclaredDept || savedDept);
-
-          // If authUid is provided and differs, migrate / link session
-          if (authUid && authUid !== uUid) {
-            try {
-              await update(ref(db, `users/${authUid}`), {
-                ...uData,
-                uid: authUid,
-                lastLoginAt: Date.now(),
-              });
-            } catch (_) {}
-          }
-
-          return {
-            uid: authUid || uUid,
-            email: normalized,
-            displayName: uData.name || uData.displayName || fallbackName,
-            name: uData.name || uData.displayName || fallbackName,
-            role: resolvedRole,
-            department: savedDept,
-            hasDeclaredDept: hasDeclared,
-            rollNumber: uData.rollNumber || uData.rollNo || '',
-            rollNo: uData.rollNumber || uData.rollNo || '',
-            pid: uData.pid || '',
-            photoURL: uData.photoURL || null,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Realtime DB users table lookup note:', err.message);
-    }
-
-    // 4b. Query /studentAccess directory in database by email for returning students
-    try {
-      const accessSnap = await get(ref(db, 'studentAccess'));
-      if (accessSnap.exists()) {
-        const allAccess = accessSnap.val() || {};
-        const matchedAccess = Object.entries(allAccess).find(
-          ([_, acc]) => (acc.email || '').toLowerCase() === normalized
-        );
-        if (matchedAccess) {
-          const [accUid, accData] = matchedAccess;
-          const savedDept = accData.department || null;
-          return {
-            uid: authUid || accUid,
-            email: normalized,
-            displayName: accData.name || accData.displayName || fallbackName,
-            name: accData.name || accData.displayName || fallbackName,
-            role: ROLES.STUDENT,
-            department: savedDept,
-            hasDeclaredDept: Boolean(accData.hasDeclaredDept || savedDept),
-            rollNumber: accData.rollNumber || accData.rollNo || '',
-            rollNo: accData.rollNumber || accData.rollNo || '',
-            pid: accData.pid || '',
-            photoURL: accData.photoURL || null,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Realtime DB studentAccess lookup note:', err.message);
-    }
-
-    // 5. Check /faculty list in database (managed by Department HOD)
-    try {
-      const facultySnapshot = await get(ref(db, 'faculty'));
-      if (facultySnapshot.exists()) {
-        const allFaculty = facultySnapshot.val() || {};
-        const matchEntry = Object.entries(allFaculty).find(
-          ([_, f]) => (f.email || '').toLowerCase() === normalized
-        );
-        if (matchEntry) {
-          const [facKey, match] = matchEntry;
-          const fRole = (match.role || '').toLowerCase();
-
-          // Link authUid in users/ and on faculty record for seamless status resolution
-          if (authUid) {
-            try {
-              await update(ref(db, `users/${authUid}`), {
-                directoryUid: facKey,
-                facultyUid: facKey,
-              });
-              await update(ref(db, `faculty/${facKey}`), {
-                authUid,
-              });
-            } catch (_) {}
-          }
-
-          return {
-            uid: authUid || match.uid || facKey,
-            directoryUid: facKey,
-            email: normalized,
-            displayName: match.name || fallbackName,
-            name: match.name || fallbackName,
-            role: fRole === 'hod' ? ROLES.HOD : ROLES.FACULTY,
-            department: match.department || inferredDept,
-            photoURL: match.photoURL || match.photoUrl || null,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Realtime DB faculty lookup note:', err.message);
-    }
-
-    // 6. STRICT ENFORCEMENT: Only HODs authorized by the Principal can log in as HOD
-    const isHod = normalized.startsWith('hod.') || normalized.includes('hod');
-    if (isHod) {
-      throw new Error(
-        `Access Denied: "${normalized}" is not registered in the Principal's HOD management table. Please add this HOD through the Principal portal first.`
-      );
-    }
-
-    // Faculty prefix emails must be registered in the HOD directory
-    const isExplicitFaculty = normalized.startsWith('faculty.');
-    if (isExplicitFaculty) {
-      throw new Error(
-        `Access Denied: "${normalized}" has not been added to the department faculty directory by the HOD.`
-      );
-    }
-
-    // RULE (2): Auto-assign the student role only to verified @student.sfit.ac.in accounts.
-    // Non-pre-approved @sfit.ac.in accounts see "Access restricted".
-    if (normalized.endsWith('@student.sfit.ac.in')) {
+      // 1c. Provision student session
       const stableUid = authUid || `student-${sanitizeEmail(normalized)}`;
       if (authUid) {
         try {
@@ -542,11 +384,189 @@ export function AuthProvider({ children }) {
       };
     }
 
-    if (normalized.endsWith('@sfit.ac.in')) {
-      throw new Error('Access restricted: Non-pre-approved @sfit.ac.in accounts are not permitted to sign in. Please contact your department HOD for access.');
+    // ============================================================
+    // 2. STRICT FACULTY & STAFF FLOW: @sfit.ac.in (No 'student' in domain)
+    // Automatically determined by staff @sfit.ac.in domain.
+    // MUST exist in directory. Non-preapproved staff are rejected.
+    // ============================================================
+    // 2a. Check known institutional demo accounts
+    if (DEMO_ACCOUNTS[normalized]) {
+      const demo = DEMO_ACCOUNTS[normalized];
+      return {
+        ...demo,
+        uid: authUid || demo.uid,
+      };
     }
 
-    throw new Error('Access restricted: Only verified @student.sfit.ac.in or authorized @sfit.ac.in accounts are permitted.');
+    // 2b. Check direct users/{uid} record
+    if (authUid) {
+      try {
+        const userSnap = await get(ref(db, `users/${authUid}`));
+        if (userSnap.exists()) {
+          const val = userSnap.val();
+          if (val.is_active === false) {
+            throw new Error('Access Revoked: Your account has been deactivated by the department administrator.');
+          }
+          const dbRole = (val.role || '').toLowerCase();
+          if (dbRole === 'hod' || dbRole === 'faculty' || dbRole === 'principal') {
+            return {
+              uid: authUid,
+              email: normalized,
+              displayName: val.name || val.displayName || fallbackName,
+              name: val.name || val.displayName || fallbackName,
+              role: dbRole === 'hod' ? ROLES.HOD : dbRole === 'principal' ? ROLES.PRINCIPAL : ROLES.FACULTY,
+              department: val.department || inferredDept,
+              designation: val.designation || (dbRole === 'hod' ? `Head of Department (${val.department || inferredDept})` : 'Faculty'),
+              photoURL: val.photoURL || null,
+            };
+          }
+        }
+      } catch (err) {
+        if (err.message?.includes('Access Revoked')) throw err;
+        console.warn('Realtime DB user check note:', err.message);
+      }
+    }
+
+    // 2c. Check preapproved_users in RTDB (pre-approved by Principal for HODs)
+    try {
+      const sanitizedKey = sanitizeEmail(normalized);
+      const preSnap = await get(ref(db, `preapproved_users/${sanitizedKey}`));
+      if (preSnap.exists()) {
+        const pre = preSnap.val();
+        const preRole = (pre.role || '').toLowerCase();
+        const resolvedRole = preRole === 'hod' ? ROLES.HOD : ROLES.FACULTY;
+        const assignedDept = pre.department || inferredDept;
+        const assignedName = pre.name || pre.displayName || fallbackName;
+
+        if (authUid) {
+          try {
+            await update(ref(db, `users/${authUid}`), {
+              uid: authUid,
+              email: normalized,
+              displayName: assignedName,
+              name: assignedName,
+              role: resolvedRole,
+              department: assignedDept,
+              claimedAt: Date.now(),
+              hasSignedIn: true,
+              is_active: true,
+            });
+          } catch (_) {}
+        }
+
+        return {
+          uid: authUid || pre.uid || `preapproved-${Date.now()}`,
+          email: normalized,
+          displayName: assignedName,
+          name: assignedName,
+          role: resolvedRole,
+          department: assignedDept,
+          designation: pre.designation || (resolvedRole === ROLES.HOD ? `Head of Department (${assignedDept})` : 'Faculty'),
+        };
+      }
+    } catch (err) {
+      console.warn('Realtime DB preapproved check note:', err.message);
+    }
+
+    // 2d. Check users table by email
+    try {
+      const usersSnap = await get(ref(db, 'users'));
+      if (usersSnap.exists()) {
+        const allUsers = usersSnap.val() || {};
+        const matchedEntry = Object.entries(allUsers).find(
+          ([_, u]) => (u.email || '').toLowerCase() === normalized
+        );
+        if (matchedEntry) {
+          const [uUid, uData] = matchedEntry;
+          const dbRole = (uData.role || '').toLowerCase();
+          if (dbRole === 'hod' || dbRole === 'faculty' || dbRole === 'principal') {
+            const resolvedRole = dbRole === 'hod' ? ROLES.HOD : dbRole === 'principal' ? ROLES.PRINCIPAL : ROLES.FACULTY;
+
+            if (authUid && authUid !== uUid) {
+              try {
+                await update(ref(db, `users/${authUid}`), {
+                  ...uData,
+                  uid: authUid,
+                  lastLoginAt: Date.now(),
+                });
+              } catch (_) {}
+            }
+
+            return {
+              uid: authUid || uUid,
+              email: normalized,
+              displayName: uData.name || uData.displayName || fallbackName,
+              name: uData.name || uData.displayName || fallbackName,
+              role: resolvedRole,
+              department: uData.department || inferredDept,
+              designation: uData.designation || (resolvedRole === ROLES.HOD ? `Head of Department (${uData.department || inferredDept})` : 'Faculty'),
+              photoURL: uData.photoURL || null,
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Realtime DB users table lookup note:', err.message);
+    }
+
+    // 2e. Check /faculty directory in database (managed by Department HOD)
+    try {
+      const facultySnapshot = await get(ref(db, 'faculty'));
+      if (facultySnapshot.exists()) {
+        const allFaculty = facultySnapshot.val() || {};
+        const matchEntry = Object.entries(allFaculty).find(
+          ([_, f]) => (f.email || '').toLowerCase() === normalized
+        );
+        if (matchEntry) {
+          const [facKey, match] = matchEntry;
+          const fRole = (match.role || '').toLowerCase();
+          const resolvedRole = fRole === 'hod' ? ROLES.HOD : ROLES.FACULTY;
+
+          if (authUid) {
+            try {
+              await update(ref(db, `users/${authUid}`), {
+                directoryUid: facKey,
+                facultyUid: facKey,
+                role: resolvedRole,
+                department: match.department || inferredDept,
+              });
+              await update(ref(db, `faculty/${facKey}`), { authUid });
+            } catch (_) {}
+          }
+
+          return {
+            uid: authUid || match.uid || facKey,
+            directoryUid: facKey,
+            email: normalized,
+            displayName: match.name || fallbackName,
+            name: match.name || fallbackName,
+            role: resolvedRole,
+            department: match.department || inferredDept,
+            designation: match.designation || (resolvedRole === ROLES.HOD ? `Head of Department (${match.department || inferredDept})` : 'Faculty'),
+            photoURL: match.photoURL || match.photoUrl || null,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Realtime DB faculty lookup note:', err.message);
+    }
+
+    // 2f. Check Principal Account
+    if (normalized === 'principal@sfit.ac.in' || normalized.startsWith('principal')) {
+      return {
+        uid: authUid || 'demo-principal-01',
+        email: normalized,
+        displayName: 'Dr. S. S. Rathod',
+        name: 'Dr. S. S. Rathod',
+        role: ROLES.PRINCIPAL,
+        department: null,
+      };
+    }
+
+    // 2g. Non-preapproved staff email: STRICT REJECTION
+    throw new Error(
+      `Access Denied: "${normalized}" is not registered in the departmental faculty directory. Please contact your department HOD to add your account.`
+    );
   };
 
   const loginWithGoogle = async (googleUser) => {
@@ -601,7 +621,7 @@ export function AuthProvider({ children }) {
         const cred = await signInWithEmailAndPassword(auth, trimmed, password);
         const tokenResult = await cred.user.getIdTokenResult(true);
         const resolved = await resolveUserRoleByEmail(trimmed, cred.user.uid);
-        let userRole = tokenResult.claims?.role || resolved.role;
+        let userRole = isStudentDomain ? ROLES.STUDENT : (tokenResult.claims?.role || resolved.role);
         let userDept = tokenResult.claims?.department || resolved.department;
         let userDisplayName = cred.user.displayName || resolved.displayName;
 

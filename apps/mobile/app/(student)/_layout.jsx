@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import FloatingNavbar from '../../src/components/FloatingNavbar';
 import AccessRevokedModal from '../../src/components/AccessRevokedModal';
@@ -9,7 +9,21 @@ import { useAuth } from '../../src/context/AuthContext';
 export default function StudentLayout() {
   const pathname = usePathname();
   const router = useRouter();
-  const { accessRevoked, dismissRevocationAndLogout, needsDepartmentSelection, declareStudentDepartment } = useAuth();
+  const { role, loading, accessRevoked, dismissRevocationAndLogout, needsDepartmentSelection, declareStudentDepartment } = useAuth();
+
+  useEffect(() => {
+    if (!loading && (role === 'faculty' || role === 'hod' || role === 'principal')) {
+      router.replace('/(faculty)');
+    }
+  }, [role, loading, router]);
+
+  if (loading || role === 'faculty' || role === 'hod' || role === 'principal') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FAF8FE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#492FB1" />
+      </View>
+    );
+  }
 
   // Determine active tab based on route pathname
   let activeTab = 'home';

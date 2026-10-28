@@ -1,11 +1,28 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Slot, usePathname } from 'expo-router';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { Slot, usePathname, useRouter } from 'expo-router';
 import FacultyNavbar from '../../src/components/FacultyNavbar';
 import { FacultyProvider } from '../../src/context/FacultyContext';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function FacultyLayout() {
+  const { role, loading } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!loading && role === 'student') {
+      router.replace('/(student)');
+    }
+  }, [role, loading, router]);
+
+  if (loading || role === 'student') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FAF8FE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#492FB1" />
+      </View>
+    );
+  }
 
   // Determine active tab based on route pathname
   let activeTab = 'home';
