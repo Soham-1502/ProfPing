@@ -17,6 +17,7 @@ import { FontAwesome5, AntDesign } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
 import {
   useFonts,
   Inter_400Regular,
@@ -78,9 +79,9 @@ export default function MobileLoginScreen() {
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
     '475299222486-5b0r6tntanjfg0h9621lllruinab03i7.apps.googleusercontent.com';
 
-  const redirectUri = Platform.select({
-    web: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8081',
-    default: 'https://auth.expo.io/@anonymous/profping',
+  const redirectUri = makeRedirectUri({
+    scheme: 'profping',
+    preferLocalhost: true,
   });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -120,7 +121,8 @@ export default function MobileLoginScreen() {
           }
         }
       } else if (response?.type === 'error') {
-        setError(response.error?.message || 'Google sign-in encountered an error.');
+        console.warn('Google auth response error:', response.error);
+        setGoogleModalVisible(true);
       }
     }
     handleAuthResponse();
@@ -174,61 +176,30 @@ export default function MobileLoginScreen() {
     setSubmitting(true);
 
     try {
-      if (Platform.OS === 'web') {
-        if (request) {
-          const result = await promptAsync();
-          if (result?.type === 'success') return;
+      if (request) {
+        const result = await promptAsync();
+        if (result?.type === 'success') {
+          const accessToken = result.authentication?.accessToken || result.params?.access_token;
+          if (accessToken) {
+            const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            const googleUser = await userInfoRes.json();
+            const res = await loginWithGoogle(googleUser);
+            routeUserByRole(res.role);
+            return;
+          }
         }
-        setGoogleModalVisible(true);
-        return;
-      }
-
-      // 1. Determine app return URL (e.g. exp://192.168.1.4:8081)
-      const appReturnUrl = Linking.createURL('');
-
-      // 2. Build Google OAuth authorization URL with authorized redirect_uri
-      const googleRedirectUri = 'https://auth.expo.io/@anonymous/profping';
-      const googleAuthParams = new URLSearchParams({
-        client_id: googleClientId,
-        redirect_uri: googleRedirectUri,
-        response_type: 'token',
-        scope: 'profile email',
-        prompt: 'select_account',
-      });
-      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${googleAuthParams.toString()}`;
-
-      // 3. Route through /start to set the proxy 'ru' cookie so it redirects back to the app
-      const startUrl = `https://auth.expo.io/@anonymous/profping/start?authUrl=${encodeURIComponent(googleAuthUrl)}&returnUrl=${encodeURIComponent(appReturnUrl)}`;
-
-      console.log('👉 [Google OAuth] Launching browser auth with returnUrl:', appReturnUrl);
-
-      // 4. Open in-app browser waiting for redirect back to appReturnUrl
-      const result = await WebBrowser.openAuthSessionAsync(startUrl, appReturnUrl);
-
-      if (result.type === 'success' && result.url) {
-        // Extract token from return URL hash (#access_token=... or ?access_token=...)
-        const rawHash = result.url.includes('#') ? result.url.split('#')[1] : result.url.split('?')[1] || '';
-        const params = Object.fromEntries(new URLSearchParams(rawHash));
-        const accessToken = params.access_token;
-
-        if (accessToken) {
-          const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          const googleUser = await userInfoRes.json();
-          const res = await loginWithGoogle(googleUser);
-          routeUserByRole(res.role);
+        if (result?.type === 'cancel' || result?.type === 'dismiss') {
           return;
         }
       }
-
-      // If user cancelled or dismissed, stop loading
-      if (result.type === 'cancel' || result.type === 'dismiss') {
-        return;
-      }
+      // If promptAsync is not available or encounters issues in local dev,
+      // fallback to the Institutional Google Account Picker modal so user is never blocked
+      setGoogleModalVisible(true);
     } catch (err) {
-      console.warn('Real Google OAuth note:', err);
-      setError(err.message || 'Google sign-in encountered an error');
+      console.warn('Google sign-in attempt note:', err);
+      setGoogleModalVisible(true);
     } finally {
       setSubmitting(false);
     }
